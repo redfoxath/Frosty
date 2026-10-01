@@ -1,0 +1,45 @@
+name: Сборка игры для Windows
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: "4.6"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Скачать Godot и шаблоны экспорта
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          curl -sSL -o godot.zip "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip
+          mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot
+          curl -sSL -o templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          dir="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$dir"
+          unzip -q -j templates.tpz "templates/windows_release_x86_64.exe" "templates/version.txt" -d "$dir"
+          rm templates.tpz godot.zip
+
+      - name: Импорт ресурсов
+        working-directory: wizchess
+        run: |
+          ../godot --headless --import || true
+          # текстуры фигур: сжатие с потерями (качество 90%) вместо lossless — сборка в ~2 раза меньше
+          sed -i 's/^compress\/mode=0/compress\/mode=1/; s/^compress\/lossy_quality=0.7/compress\/lossy_quality=0.9/' models/*.jpg.import
+          ../godot --headless --import || true
+
+      - name: Экспорт
+        working-directory: wizchess
+        run: |
+          mkdir -p ../build/BoevyeShakhmaty
+          ../godot --headless --export-release "Windows Desktop" ../build/BoevyeShakhmaty/BoevyeShakhmaty.exe
+          ls -la ../build/BoevyeShakhmaty
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BoevyeShakhmaty-Windows
+          path: build/BoevyeShakhmaty
