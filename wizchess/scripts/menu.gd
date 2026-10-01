@@ -12,6 +12,11 @@ const SLAB := Rect2(22, 0, 474, 790)
 const CANDLES := [Vector2(515, 122), Vector2(585, 255), Vector2(1075, 262), Vector2(1258, 255),
 	Vector2(1625, 105), Vector2(1615, 230), Vector2(860, 150)]
 const DIFF := ["НОВИЧОК", "РЫЦАРЬ", "МАГИСТР"]
+## Центр содержимого и левый край кнопок — в координатах плиты
+const CX := SLAB.size.x * 0.5
+const PAGE_X := CX - 200.0
+## Отступ заголовка от краёв плиты (с учётом обводки и тени)
+const TITLE_PAD := 34.0
 
 const TITLE_SHADER := """
 shader_type canvas_item;
@@ -140,13 +145,16 @@ func _build() -> void:
 	rim.size = Vector2(2, SLAB.size.y - 30)
 	rim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	slab.add_child(rim)
-	var cx := 258.0
+	var cx := CX
 	crown = MenuDeco.new(MenuDeco.KIND_CROWN)
 	crown.position = Vector2(cx - 200, 50)
 	crown.size = Vector2(400, 84)
 	slab.add_child(crown)
 	var sh := Shader.new()
 	sh.code = TITLE_SHADER
+	var title_fs := 106
+	for t in TITLE:
+		title_fs = mini(title_fs, _fit_size(t, SLAB.size.x - TITLE_PAD * 2.0 - 14.0, 106))
 	for i in TITLE.size():
 		var l := Label.new()
 		l.text = TITLE[i]
@@ -155,7 +163,7 @@ func _build() -> void:
 		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var ls := LabelSettings.new()
 		ls.font = font_title
-		ls.font_size = _fit_size(TITLE[i], 468.0, 106)
+		ls.font_size = title_fs
 		ls.font_color = Color.WHITE
 		ls.outline_size = 7
 		ls.outline_color = Color.BLACK
@@ -163,8 +171,8 @@ func _build() -> void:
 		ls.shadow_color = Color(0, 0, 0, 0.75)
 		ls.shadow_offset = Vector2(0, 5)
 		l.label_settings = ls
-		l.size = Vector2(500, 96)
-		l.position = Vector2(cx - 250, 128 + i * 84)
+		l.size = Vector2(SLAB.size.x, 96)
+		l.position = Vector2(0, 128 + i * 84)
 		var m := ShaderMaterial.new()
 		m.shader = sh
 		var fs: float = ls.font_size
@@ -255,7 +263,7 @@ func _build_embers() -> void:
 
 func _page(rows: int) -> VBoxContainer:
 	var v := VBoxContainer.new()
-	v.position = Vector2(58, 368)
+	v.position = Vector2(PAGE_X, 368)
 	v.size = Vector2(400, 350)
 	v.add_theme_constant_override("separation", 20 if rows <= 4 else 12)
 	v.visible = false
@@ -429,15 +437,15 @@ func go(name: String) -> void:
 	var tw := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	if old != null:
 		tw.tween_property(old, "modulate:a", 0.0, 0.12)
-		tw.parallel().tween_property(old, "position:x", 58.0 - 24.0, 0.12)
+		tw.parallel().tween_property(old, "position:x", PAGE_X - 24.0, 0.12)
 		tw.tween_callback(func(): old.visible = false)
 	nw.modulate.a = 0.0
-	nw.position.x = 58.0 + 24.0
+	nw.position.x = PAGE_X + 24.0
 	tw.tween_callback(func():
 		nw.visible = true
 		_focus_first())
 	tw.tween_property(nw, "modulate:a", 1.0, 0.22)
-	tw.parallel().tween_property(nw, "position:x", 58.0, 0.22)
+	tw.parallel().tween_property(nw, "position:x", PAGE_X, 0.22)
 
 func _go_now(name: String) -> void:
 	page = name
@@ -446,7 +454,7 @@ func _go_now(name: String) -> void:
 		var p: Control = pages[k]
 		p.visible = k == name
 		p.modulate.a = 1.0
-		p.position.x = 58.0
+		p.position.x = PAGE_X
 	for r in refreshers:
 		r.call()
 
