@@ -80,6 +80,14 @@ var font_sym: SystemFont
 var sfx_players := []
 var sfx_cache := {}
 
+# меню, настройки, сохранение
+const SAVE_PATH := "user://save.dat"
+const SETTINGS_PATH := "user://settings.cfg"
+var menu: Menu
+var session := false   # партия начата или продолжена в этом запуске
+var volume := 0.8
+var fullscreen := false
+
 func _ready() -> void:
 	randomize()
 	_build_env()
@@ -106,6 +114,12 @@ func _ready() -> void:
 	cam_hoff = v.hoff
 	get_viewport().size_changed.connect(_on_resize)
 	_on_resize()
+	load_settings()
+	menu = Menu.new()
+	menu.g = self
+	add_child(menu)
+	if Array(OS.get_cmdline_user_args()).filter(func(a: String): return a.begins_with("--")).is_empty():
+		menu.open_menu(true)
 	if "--knightshow" in OS.get_cmdline_user_args():
 		panel.visible = false
 		for ch in world.get_children():
@@ -588,12 +602,12 @@ func _build_panel(root: Control) -> void:
 	for s in ["ИИ: Новичок", "ИИ: Рыцарь", "ИИ: Магистр"]:
 		opt_diff.add_item(s)
 	opt_diff.select(1)
-	opt_diff.item_selected.connect(func(i): depth = i + 1)
+	opt_diff.item_selected.connect(func(i): set_depth(i + 1))
 	v.add_child(opt_diff)
 	chk_ult = CheckButton.new()
 	chk_ult.text = "Ульты при взятии"
 	chk_ult.button_pressed = true
-	chk_ult.toggled.connect(func(b): ult_on = b)
+	chk_ult.toggled.connect(func(b): set_ult(b))
 	v.add_child(chk_ult)
 	var row := HBoxContainer.new()
 	var bn := Button.new()
@@ -601,6 +615,7 @@ func _build_panel(root: Control) -> void:
 	bn.pressed.connect(func():
 		if not cine and (not busy or _ai_thread != null):
 			new_game()
+			save_game()
 			maybe_ai())
 	row.add_child(bn)
 	btn_undo = Button.new()
@@ -611,6 +626,12 @@ func _build_panel(root: Control) -> void:
 	row.add_theme_constant_override("separation", 8)
 	for b in row.get_children():
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var bm := Button.new()
+	bm.text = "Главное меню  (Esc)"
+	bm.pressed.connect(func():
+		if can_open_menu():
+			menu.open_menu())
+	v.add_child(bm)
 	var bd := Button.new()
 	bd.text = "Показать все 12 ульт"
 	bd.pressed.connect(func():
@@ -812,6 +833,7 @@ func set_mode(i: int) -> void:
 	opt_mode.select(i)
 	opt_diff.disabled = i == MODE_PVP
 	refresh()
+	save_game()
 	if not busy:
 		maybe_ai()
 
@@ -994,6 +1016,7 @@ func do_move(m: Dictionary) -> void:
 	check_over()
 	busy = false
 	refresh()
+	save_game()
 	maybe_ai()
 
 func check_over() -> void:
@@ -1026,6 +1049,7 @@ func check_over() -> void:
 		get_tree().create_timer(4.0).timeout.connect(func():
 			if mode == MODE_AIAI and not over.is_empty() and not busy:
 				new_game()
+				save_game()
 				maybe_ai())
 
 func maybe_ai() -> void:
@@ -1055,6 +1079,7 @@ func undo() -> void:
 	legal = []
 	render_all()
 	refresh()
+	save_game()
 
 # ---------------- ввод ----------------
 func _unhandled_input(e: InputEvent) -> void:
@@ -1175,6 +1200,104 @@ func parse_cmd(txt: String):
 			return "Никто не может пойти на %s." % sqs[0]
 		return "На %s могут пойти несколько фигур — уточните, например «%s %s»." % [sqs[0], Rules.sq_name(c[0].f), sqs[0]]
 	return "Не понял приказ. Примеры: «конь f3», «e2 e4», «рокировка»."
+
+# ---------------- меню, настройки, сохранение ----------------
+func can_open_menu() -> bool:
+	return not cine and not demo_running and (not busy or _ai_thread != null)
+
+func start_game(m: int) -> void:
+	session = true
+	new_game()
+	set_mode(m)   # сохранит партию и при необходимости запустит ИИ
+
+func save_game() -> void:
+	if demo_running or not session:
+		return
+	if not over.is_empty():
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
+		return
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_var({"v": 1, "state": state, "hist": hist, "log": log_lines, "last": last_mv, "mode": mode, "depth": depth})
+
+func _read_save() -> Dictionary:
+	if not FileAccess.file_exists(SAVE_PATH):
+		return {}
+	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if f == null:
+		return {}
+	var d = f.get_var()
+	if not (d is Dictionary) or d.get("v", 0) != 1 or not d.has("state"):
+		return {}
+	return d
+
+func has_save() -> bool:
+	return not _read_save().is_empty()
+
+func load_game() -> bool:
+	var d := _read_save()
+	if d.is_empty():
+		return false
+	_game_id += 1
+	busy = false
+	state = d.state
+	hist = d.hist
+	log_lines = d.log
+	last_mv = d.last
+	over = {}
+	sel = -1
+	legal = []
+	set_depth(d.get("depth", depth))
+	mode = d.get("mode", MODE_PVAI)
+	opt_mode.select(mode)
+	opt_diff.disabled = mode == MODE_PVP
+	session = true
+	render_all()
+	refresh()
+	return true
+
+func load_settings() -> void:
+	var c := ConfigFile.new()
+	c.load(SETTINGS_PATH)
+	set_volume(c.get_value("audio", "volume", volume), false)
+	set_fullscreen(c.get_value("video", "fullscreen", fullscreen), false)
+	set_ult(c.get_value("game", "ults", ult_on), false)
+	set_depth(c.get_value("game", "depth", depth), false)
+
+func save_settings() -> void:
+	var c := ConfigFile.new()
+	c.set_value("audio", "volume", volume)
+	c.set_value("video", "fullscreen", fullscreen)
+	c.set_value("game", "ults", ult_on)
+	c.set_value("game", "depth", depth)
+	c.save(SETTINGS_PATH)
+
+func set_volume(v: float, store := true) -> void:
+	volume = clampf(v, 0.0, 1.0)
+	AudioServer.set_bus_mute(0, volume <= 0.001)
+	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(volume, 0.001)))
+	if store:
+		save_settings()
+
+func set_fullscreen(on: bool, store := true) -> void:
+	fullscreen = on
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if on else DisplayServer.WINDOW_MODE_WINDOWED)
+	if store:
+		save_settings()
+
+func set_ult(on: bool, store := true) -> void:
+	ult_on = on
+	chk_ult.set_pressed_no_signal(on)
+	if store:
+		save_settings()
+
+func set_depth(d: int, store := true) -> void:
+	depth = clampi(d, 1, 3)
+	opt_diff.select(depth - 1)
+	if store:
+		save_settings()
 
 # ---------------- демонстрация ----------------
 func demo(only := "") -> void:

@@ -1,0 +1,5 @@
+# кэш редактора Godot
+.godot/
+# текстуры, которые Godot сам извлекает из .glb при импорте
+models/*.jpg
+models/*.import
