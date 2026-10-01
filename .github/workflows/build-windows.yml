@@ -28,9 +28,6 @@ jobs:
         working-directory: wizchess
         run: |
           ../godot --headless --import || true
-          # текстуры фигур: сжатие с потерями (качество 90%) вместо lossless — сборка в ~2 раза меньше
-          sed -i 's/^compress\/mode=0/compress\/mode=1/; s/^compress\/lossy_quality=0.7/compress\/lossy_quality=0.9/' models/*.jpg.import
-          ../godot --headless --import || true
 
       - name: Экспорт
         working-directory: wizchess
