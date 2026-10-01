@@ -119,7 +119,12 @@ func _ready() -> void:
 	menu.g = self
 	add_child(menu)
 	if Array(OS.get_cmdline_user_args()).filter(func(a: String): return a.begins_with("--")).is_empty():
-		menu.open_menu(true)
+		# заставка студии, затем меню; игра всё это время на паузе
+		get_tree().paused = true
+		get_viewport().disable_3d = true
+		var sp := Splash.new()
+		sp.finished.connect(func(): menu.open_menu(true))
+		add_child(sp)
 	if "--knightshow" in OS.get_cmdline_user_args():
 		panel.visible = false
 		for ch in world.get_children():

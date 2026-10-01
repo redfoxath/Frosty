@@ -367,7 +367,7 @@ func _input(e: InputEvent) -> void:
 		elif g.session:
 			_snd("sheath", -10.0, 1.15)
 			close_menu()
-	elif visible:
+	elif visible or get_tree().paused:   # меню закрывается или идёт заставка
 		return
 	elif g.can_open_menu():
 		open_menu()
