@@ -549,7 +549,7 @@ func ult_bishop(x: Dictionary) -> Vector3:
 	var trail_col: Color = cols.b if c == 1 else Color("ff5a20")
 	if P.has("flail"):
 		(P.flail as Flail).trail(true, trail_col)
-		(P.flail as Flail).track = 0.6   # в ударе цепь идёт по дуге из анимации с лёгким запаздыванием
+		(P.flail as Flail).set_free(true)   # в ударе шар ведёт физика: цепь, тяжесть, инерция замаха
 	g.cam_to(x.mid + side * (x.dist * 0.6 + 6.0) + UP * 2.2 - d * 0.5, x.mid + UP * 1.6, 0.4, 50)
 	form.rotation.y = x.ang + aim_yaw
 	Fig.play_anim(form, "attack", 1.0)
@@ -577,8 +577,26 @@ func ult_bishop(x: Dictionary) -> Vector3:
 	g.lines.mode = 0
 	g.set_slow(1.0)
 	g.cam_to(x.PV + side * 4.2 + UP * 0.8 - d * 1.6, x.PV + UP * 1.0, 0.15, 52)
-	# удар — в нижней точке дуги шара
-	await at_frame(form, BISHOP_HIT_FR)
+	# удар — когда шар (его ведёт физика) долетает до врага; если прошёл мимо — в момент наибольшего сближения
+	var best := INF
+	var guard := 0
+	while guard < 900 and Fig.anim_pos(form) >= 0.0:
+		var fr_now := Fig.anim_pos(form) * 30.0
+		if fr_now > BISHOP_HIT_FR + 12.0:
+			break
+		if fr_now > BISHOP_HIT_FR - 6.0:
+			var bp := tip.global_position
+			var dh := Vector2(bp.x - x.PV.x, bp.z - x.PV.z).length()
+			if dh < 0.5 and bp.y < 1.5:
+				break
+			if best < 1.0 and dh > best + 0.05:
+				break
+			if bp.y < 1.8:
+				best = minf(best, dh)
+		await g.get_tree().process_frame
+		guard += 1
+	if P.has("flail"):
+		(P.flail as Flail).hit()
 	if P.has("flail"):
 		(P.flail as Flail).trail(false)
 	if c == 1:
@@ -593,7 +611,7 @@ func ult_bishop(x: Dictionary) -> Vector3:
 	await at_frame(form, 52)
 	moving[0] = false
 	if P.has("flail"):
-		(P.flail as Flail).track = 0.0
+		(P.flail as Flail).set_free(false)
 	var endp := form.position
 	Fig.play_anim(form, "idle")
 	g.create_tween().tween_property(lt, "light_energy", 0.0, 0.3)

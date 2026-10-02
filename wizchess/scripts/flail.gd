@@ -15,15 +15,29 @@ var ball_local := Vector3.ZERO   # центр шара в координатах
 var ball: Node3D                 # маркер на центре шара — к нему цепляются эффекты
 var _rest: Basis
 var _pos := Vector3.ZERO
-var _prev := Vector3.ZERO
+var _vel := Vector3.ZERO
 var _piv := Vector3.ZERO
+var _tgt := Vector3.ZERO
+var damping := DAMPING
 var _started := false
 var anim_ball := Vector3.ZERO    # где шар по анимации (без раскачки), в мировых координатах
 ## Жёсткость тяги к позе из анимации (свободная раскачка в стойке и при ходьбе)
 var follow := FOLLOW
-## 0..1 — насколько каждый кадр подтягивать шар к позе из анимации. В ударе замах слишком быстрый
-## для маятника, поэтому цепь почти точно идёт по дуге из анимации с запаздыванием в пару кадров.
+## 0..1 — насколько каждый кадр подтягивать шар к позе из анимации (0 — чистая физика)
 var track := 0.0
+## Скорость шара, м/с (для силы удара и эффектов)
+var speed := 0.0
+
+## Удар о цель: почти вся энергия шара уходит в противника, остаток — отскок назад
+func hit(absorb := 0.85) -> void:
+	_vel *= -(1.0 - absorb) * 0.5
+
+## Свободный кистень: шар почти не тянется к позе из анимации, его ведут только цепь,
+## тяжесть и инерция от движения руки — при замахе отстаёт, при ударе захлёстывает вперёд
+func set_free(on: bool) -> void:
+	follow = 2.0 if on else FOLLOW
+	damping = 0.35 if on else DAMPING
+	track = 0.0
 # след удара: лента за шаром
 var _trail_on := false
 var _trail_col := Color.WHITE
@@ -151,19 +165,34 @@ func _on_skeleton_updated() -> void:
 	# первый кадр или фигуру переставили рывком — без качания
 	if not _started or piv.distance_to(_piv) > 1.0:
 		_pos = target
-		_prev = target
+		_vel = Vector3.ZERO
+		_piv = piv
+		_tgt = target
 		_started = true
-	_piv = piv
 	if dt <= 0.0:
 		return
-	var vel := _pos - _prev
-	_prev = _pos
-	var acc := GRAVITY + (target - _pos) * follow * follow * 0.25
-	var nxt := _pos + vel * maxf(0.0, 1.0 - DAMPING * dt) + acc * dt * dt
-	nxt = piv + (nxt - piv).normalized() * L   # цепь не растягивается
-	if track > 0.0:
-		nxt = piv + (nxt.lerp(target, track) - piv).normalized() * L
-	_pos = nxt
+	# шаги по 4 мс: рука за кадр проходит до полуметра, крупный шаг «срезал» бы инерцию.
+	# Цепь — жёсткая связь: после шага шар возвращаем на сферу вокруг шарнира,
+	# а скорость берём из фактического перемещения — так рывок руки передаётся шару.
+	var n := clampi(ceili(dt / 0.004), 1, 12)
+	var h := dt / n
+	var k := follow * follow * 0.25
+	for i in n:
+		var t := float(i + 1) / n
+		var pv := _piv.lerp(piv, t)
+		var tg := _tgt.lerp(target, t)
+		var old := _pos
+		_vel += (GRAVITY + (tg - _pos) * k) * h
+		_vel *= maxf(0.0, 1.0 - damping * h)
+		var nxt := _pos + _vel * h
+		nxt = pv + (nxt - pv).normalized() * L
+		if track > 0.0:
+			nxt = pv + (nxt.lerp(tg, track) - pv).normalized() * L
+		_vel = (nxt - old) / h
+		_pos = nxt
+	speed = _vel.length()
+	_piv = piv
+	_tgt = target
 	# поворот считаем в координатах родителя (кости кисти): кость обновляется позже в этом же кадре,
 	# и поворот, заданный в мировых координатах, она бы сбила
 	var inv := (head.get_parent() as Node3D).global_transform.affine_inverse()
