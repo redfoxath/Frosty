@@ -524,7 +524,9 @@ static func rigged(path: String, feet: float, raw_h: float, height: float, dark 
 	var aps := inst.find_children("*", "AnimationPlayer", true, false)
 	if aps.size() > 0:
 		var ap: AnimationPlayer = aps[0]
-		_strip_root_motion(ap, names["hips"])
+		# ось «вверх» скелета — самая большая составляющая положения таза в покое (у этих моделей это Z)
+		var up := skel.get_bone_rest(skel.find_bone(names["hips"])).origin.abs().max_axis_index()
+		_strip_root_motion(ap, names["hips"], up)
 		p.anim = ap
 		ap.stop()
 		skel.reset_bone_poses()
@@ -541,7 +543,7 @@ static func rigged(path: String, feet: float, raw_h: float, height: float, dark 
 	return root
 
 ## Убираем перемещение таза вперёд из анимации (ходьба на месте — двигаем фигуру сами)
-static func _strip_root_motion(ap: AnimationPlayer, hips: String) -> void:
+static func _strip_root_motion(ap: AnimationPlayer, hips: String, up := 1) -> void:
 	for lib_name in ap.get_animation_library_list():
 		var lib := ap.get_animation_library(lib_name)
 		for an in lib.get_animation_list():
@@ -551,10 +553,13 @@ static func _strip_root_motion(ap: AnimationPlayer, hips: String) -> void:
 				continue
 			for ti in a.get_track_count():
 				if a.track_get_type(ti) == Animation.TYPE_POSITION_3D and String(a.track_get_path(ti)).ends_with(hips):
+					# горизонталь фиксируем (двигаем фигуру сами), высоту (прыжок, приседание) оставляем
 					var first: Vector3 = a.track_get_key_value(ti, 0)
 					for k in a.track_get_key_count(ti):
 						var v: Vector3 = a.track_get_key_value(ti, k)
-						a.track_set_key_value(ti, k, Vector3(first.x, v.y, first.z))
+						var nv := first
+						nv[up] = v[up]
+						a.track_set_key_value(ti, k, nv)
 
 ## Проиграть анимацию модели (вместо процедурных поз). Возвращает false, если анимации нет.
 static func play_anim(fig: Node3D, name: String, speed := 1.0, from_frame := -1.0) -> bool:

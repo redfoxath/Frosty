@@ -416,6 +416,12 @@ func ult_knight(x: Dictionary) -> Vector3:
 	await transform_out(x, form, x.P0)
 	return x.P0
 
+## Кадр удара в анимации attack: шар идёт диагонально сверху-справа вниз-влево
+## и в этот кадр он перед слоном на высоте корпуса противника (~0.7 м)
+const BISHOP_HIT_FR := 44.0
+## Где в этот кадр шар относительно слона: вперёд и вправо (минус — влево), м — замерено в игре
+const BISHOP_HIT_OFS := Vector2(1.10, -0.71)
+
 const JUMP_ROOT := [[1, 0.0], [4, 0.13], [7, 0.24], [10, 0.36], [13, 0.48], [16, 0.59], [19, 0.64], [22, 0.68], [25, 0.75], [28, 0.81], [31, 0.87], [34, 0.93], [36, 1.0], [40, 1.13], [46, 1.24], [52, 1.33], [58, 1.4], [66, 1.44]]
 
 func _jump_frac(fr: float) -> float:
@@ -504,8 +510,11 @@ func ult_bishop(x: Dictionary) -> Vector3:
 	var s: float = form.get_node("model").scale.x * 1.8 / 1.8
 	var eyec: Color = Color("4aa8ff") if c == 1 else Color("ff2030")
 
-	var reach := 0.75
+	# слон не долетает до врага на длину удара и доворачивается так,
+	# чтобы шар (он приходит левее оси слона) пришёлся точно в цель
+	var reach := BISHOP_HIT_OFS.length()
 	var travel: float = max(0.0, x.dist - reach)
+	var aim_yaw := atan2(BISHOP_HIT_OFS.y, BISHOP_HIT_OFS.x)
 	var start: Vector3 = x.P0
 	await shot_start(x, 1.8, 1.6, 4.0, 46)
 	await transform_in(x, form)
@@ -540,7 +549,9 @@ func ult_bishop(x: Dictionary) -> Vector3:
 	var trail_col: Color = cols.b if c == 1 else Color("ff5a20")
 	if P.has("flail"):
 		(P.flail as Flail).trail(true, trail_col)
+		(P.flail as Flail).track = 0.6   # в ударе цепь идёт по дуге из анимации с лёгким запаздыванием
 	g.cam_to(x.mid + side * (x.dist * 0.6 + 6.0) + UP * 2.2 - d * 0.5, x.mid + UP * 1.6, 0.4, 50)
+	form.rotation.y = x.ang + aim_yaw
 	Fig.play_anim(form, "attack", 1.0)
 	var moving := [true]
 	var form_id := form.get_instance_id()
@@ -549,24 +560,25 @@ func ult_bishop(x: Dictionary) -> Vector3:
 			var fr: float = Fig.anim_pos(form) * 30.0
 			if fr < 0.0:
 				break
-			# до приземления (кадр 36, доля 1.0) — путь до врага; дальше в анимации идёт ещё +44% хода,
-			# масштабировать его на всю дистанцию нельзя — слон улетал на клетки дальше цели
-			var jf := _jump_frac(fr)
-			form.position = start + d * (travel * minf(jf, 1.0) + maxf(0.0, jf - 1.0) * 0.25)
+			# путь до врага проходим к кадру удара (BISHOP_HIT_FR) по кривой прыжка из анимации, дальше стоим
+			var jf := clampf(_jump_frac(fr) / _jump_frac(BISHOP_HIT_FR), 0.0, 1.0)
+			form.position = start + d * travel * jf
 			await g.get_tree().process_frame
 	mover.call()
 	await at_frame(form, 18)
 	g.sfx("whoosh", 0, 0.7)
-	await at_frame(form, 24)
+	# замах: шар над головой — замедление и линии скорости
+	await at_frame(form, 31)
 	g.set_slow(0.3)
 	g.lines.mode = 1
 	g.lines.center = g.cam.unproject_position(tip.global_position)
 	g.sfx("whoosh", 0, 0.5)
-	await at_frame(form, 29)
+	await at_frame(form, 39)
 	g.lines.mode = 0
 	g.set_slow(1.0)
 	g.cam_to(x.PV + side * 4.2 + UP * 0.8 - d * 1.6, x.PV + UP * 1.0, 0.15, 52)
-	await at_frame(form, 35)
+	# удар — в нижней точке дуги шара
+	await at_frame(form, BISHOP_HIT_FR)
 	if P.has("flail"):
 		(P.flail as Flail).trail(false)
 	if c == 1:
@@ -580,6 +592,8 @@ func ult_bishop(x: Dictionary) -> Vector3:
 	await impact(x, 1.8, true)
 	await at_frame(form, 52)
 	moving[0] = false
+	if P.has("flail"):
+		(P.flail as Flail).track = 0.0
 	var endp := form.position
 	Fig.play_anim(form, "idle")
 	g.create_tween().tween_property(lt, "light_energy", 0.0, 0.3)

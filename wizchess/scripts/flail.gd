@@ -18,6 +18,12 @@ var _pos := Vector3.ZERO
 var _prev := Vector3.ZERO
 var _piv := Vector3.ZERO
 var _started := false
+var anim_ball := Vector3.ZERO    # где шар по анимации (без раскачки), в мировых координатах
+## Жёсткость тяги к позе из анимации (свободная раскачка в стойке и при ходьбе)
+var follow := FOLLOW
+## 0..1 — насколько каждый кадр подтягивать шар к позе из анимации. В ударе замах слишком быстрый
+## для маятника, поэтому цепь почти точно идёт по дуге из анимации с запаздыванием в пару кадров.
+var track := 0.0
 # след удара: лента за шаром
 var _trail_on := false
 var _trail_col := Color.WHITE
@@ -30,12 +36,24 @@ const TRAIL_W := 0.16
 
 func setup(h: Node3D) -> void:
 	head = h
+	# Godot при импорте даёт рукояти (mace) скрытое преобразование относительно кисти (масштаб ×100,
+	# поворот, сдвиг), а отделённой цепи — нет. Обе сетки заданы в одних координатах, поэтому цепь
+	# получает то же преобразование плюс сдвиг до шарнира, иначе шар в 100 раз меньше и не на месте.
+	var shaft := h.get_parent().get_node_or_null("mace") as Node3D
+	if shaft != null:
+		h.transform = shaft.transform * Transform3D(Basis.IDENTITY, h.position)
 	_rest = h.basis
 	ball_local = _ball_center(h)
 	ball = Node3D.new()
 	ball.name = "flail_ball"
 	h.add_child(ball)
 	ball.position = ball_local
+	var p := h.get_parent()
+	while p != null and not (p is Skeleton3D):
+		p = p.get_parent()
+	_skel = p as Skeleton3D
+	if _skel != null:
+		_skel.skeleton_updated.connect(_on_skeleton_updated)
 
 ## Центр шара: среднее дальних от шарнира вершин цепи
 static func _ball_center(h: Node3D) -> Vector3:
@@ -103,17 +121,30 @@ func _draw_trail() -> void:
 
 func _process(dt: float) -> void:
 	_clock += dt
+	_dt += dt
 	if _trail_mi != null:
 		if _trail_on and ball != null and is_instance_valid(ball) and ball.is_visible_in_tree():
 			_trail_pts.append([ball.global_position, _clock])
 		_draw_trail()
+
+var _dt := 0.0
+var _skel: Skeleton3D
+
+## Маятник считаем сразу после того, как скелет рассчитал позу кадра: тогда кисть уже на своём
+## месте и цепь не отстаёт от руки на кадр (заметно при быстром ударе и низком FPS)
+func _on_skeleton_updated() -> void:
 	if head == null or not is_instance_valid(head) or not head.is_visible_in_tree():
 		_started = false
 		return
-	dt = minf(dt, 1.0 / 30.0)
+	var att := head.get_parent() as BoneAttachment3D
+	if att != null:
+		att.on_skeleton_update()
+	var dt := minf(_dt, 1.0 / 30.0)
+	_dt = 0.0
 	head.basis = _rest
 	var piv := head.global_position
 	var target := head.global_transform * ball_local
+	anim_ball = target
 	var L := (target - piv).length()
 	if L < 0.001:
 		return
@@ -127,12 +158,17 @@ func _process(dt: float) -> void:
 		return
 	var vel := _pos - _prev
 	_prev = _pos
-	var acc := GRAVITY + (target - _pos) * FOLLOW * FOLLOW * 0.25
+	var acc := GRAVITY + (target - _pos) * follow * follow * 0.25
 	var nxt := _pos + vel * maxf(0.0, 1.0 - DAMPING * dt) + acc * dt * dt
 	nxt = piv + (nxt - piv).normalized() * L   # цепь не растягивается
+	if track > 0.0:
+		nxt = piv + (nxt.lerp(target, track) - piv).normalized() * L
 	_pos = nxt
-	var d0 := (target - piv).normalized()
-	var d1 := (_pos - piv).normalized()
+	# поворот считаем в координатах родителя (кости кисти): кость обновляется позже в этом же кадре,
+	# и поворот, заданный в мировых координатах, она бы сбила
+	var inv := (head.get_parent() as Node3D).global_transform.affine_inverse()
+	var lp := inv * piv
+	var d0 := (inv * target - lp).normalized()
+	var d1 := (inv * _pos - lp).normalized()
 	if d0.cross(d1).length() > 1e-5:
-		var gb := head.global_transform.basis
-		head.global_transform.basis = Basis(Quaternion(d0, d1)) * gb
+		head.basis = Basis(Quaternion(d0, d1)) * _rest
