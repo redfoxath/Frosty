@@ -666,82 +666,87 @@ func ult_bishop(x: Dictionary) -> Vector3:
 # =========================================================
 # ЛАДЬЯ: башня с лучниками. Белые — ливень стрел, чёрные — огненные стрелы
 # =========================================================
+## Башня-ладья из модели и лучники-солдаты на её площадке
+const TOWER_H := 3.0
+## Пол площадки за зубцами — доля высоты модели (замерено по сетке)
+const TOWER_FLOOR := 0.875 / 0.98
+const ARCHER_H := 0.9
+
 func make_tower(c: int, ang: float) -> Node3D:
 	var root := Node3D.new()
-	var stone := Fig.mat("tower_w", Color("d6ccb6"), 0.05, 0.75) if c == 1 else Fig.mat("tower_b", Color("231c2a"), 0.3, 0.6)
-	var trim := Fig.mat("gold", Color("d8a63c"), 0.9, 0.3) if c == 1 else Fig.mat("crimson", Color("b0102a"), 0.4, 0.4)
-	Fig.mi(root, Fig.cyl(0.58, 0.7, 2.6, 24), stone, Vector3(0, 1.3, 0))
-	Fig.mi(root, Fig.cyl(0.82, 0.62, 0.3, 24), stone, Vector3(0, 2.72, 0))
-	Fig.mi(root, Fig.torus(0.72, 0.8), trim, Vector3(0, 2.6, 0))
-	for i in 10:
-		var a := i / 10.0 * TAU
-		Fig.mi(root, Fig.box(0.24, 0.3, 0.14), stone, Vector3(sin(a) * 0.76, 3.0, cos(a) * 0.76), Vector3(0, a, 0))
-	for i in 4:
-		var a := i / 4.0 * TAU + 0.4
-		Fig.mi(root, Fig.box(0.1, 0.3, 0.04), Fig.glow(Color("ffcf5a") if c == 1 else Color("ff3d20"), 2.5), Vector3(sin(a) * 0.6, 1.6 + (i % 2) * 0.5, cos(a) * 0.6), Vector3(0, a, 0))
-	var flag := Fig.node(root, Vector3(0, 2.85, 0.4))
-	Fig.mi(flag, Fig.cyl(0.02, 0.02, 1.2), Fig.mat("wood", Color("4a2c1a"), 0, 0.8), Vector3(0, 0.6, 0))
-	Fig.mi(flag, Fig.box(0.02, 0.35, 0.5), Fig.mat("tabard_w", Color("2a4aa0"), 0, 0.8) if c == 1 else Fig.mat("tabard_b", Color("6a0c1a"), 0, 0.8), Vector3(0, 1.0, 0.25))
+	var tw: Node3D = (load("res://models/rook_w.glb" if c == 1 else "res://models/rook_b.glb") as PackedScene).instantiate()
+	root.add_child(tw)
+	tw.scale = Vector3.ONE * TOWER_H / Fig.MODEL_H
+	tw.rotation.y = PI
+	Fig._shadows(tw)
 	var archers := []
-	for i in 6:
-		var off := deg_to_rad(-62.0 + i * 24.8)
-		var a := off
-		var arc := Fig.humanoid({"armor": Fig.mat("steel", Color("c4cad4"), 0.9, 0.28) if c == 1 else Fig.mat("blackiron", Color("2a2630"), 0.85, 0.35),
-			"cloth": Fig.mat("tabard_w", Color("2a4aa0"), 0, 0.8) if c == 1 else Fig.mat("tabard_b", Color("6a0c1a"), 0, 0.8)})
-		arc.scale = Vector3.ONE * 0.4
-		arc.position = Vector3(-sin(a) * 0.55, 2.87, -cos(a) * 0.55)
-		arc.rotation.y = a * 0.3
-		var P := Fig.P_(arc)
-		Fig.mi(P.head, Fig.cyl(0.15, 0.15, 0.2), Fig.mat("steel", Color("c4cad4"), 0.9, 0.28), Vector3(0, 0.17, 0))
-		var bw := Fig.bow(c)
-		P.hand_l.add_child(bw)
-		bw.rotation = Vector3(PI / 2, 0, 0)
-		root.add_child(arc)
-		archers.append(arc)
+	for i in 3:
+		var a := Archer.make(c, ARCHER_H)
+		root.add_child(a.fig)
+		a.fig.position = Vector3((i - 1) * 0.5, TOWER_H * TOWER_FLOOR, -0.12)
+		archers.append(a)
 	root.set_meta("archers", archers)
-	root.scale = Vector3.ONE * 0.95
 	return root
+
+## Лучник отпускает тетиву: стрела уходит с тетивы по дуге в точку to
+func _loose(a: Archer, to: Vector3, c: int, scale := 1.0, arc := 1.2, dur := 0.55) -> Tween:
+	var from := a.arrow_start()
+	a.nocked = false
+	var sn := a.create_tween()
+	sn.tween_property(a, "draw", 0.0, 0.05).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+	var ar := Fig.arrow(c, c == -1)
+	ar.scale = Vector3.ONE * a.height / 1.7 * scale
+	# след за наконечником: у чёрных — огненный, у белых — едва заметный
+	var tip := Node3D.new()
+	ar.add_child(tip)
+	tip.position = Vector3(0, 0, -0.38)
+	g.fx.add_child(Streak.new(tip, Color("ff7a20") if c == -1 else Color(0.8, 0.9, 1.0, 0.5), 0.05 * scale, 0.12))
+	var tw: Tween = g.fx.projectile(ar, from, to, arc, dur, 1.2)
+	return tw
+
+## Натянуть тетиву со стрелой
+func _nock(a: Archer, dur: float) -> void:
+	a.nocked = true
+	a.draw = 0.0
+	a.create_tween().tween_property(a, "draw", 1.0, dur).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 func ult_rook(x: Dictionary) -> Vector3:
 	var c: int = x.c
 	var cols: Dictionary = x.cols
 	var form := make_tower(c, x.ang)
 	var archers: Array = form.get_meta("archers")
+	for a in archers:
+		(a as Archer).target = x.PV + UP * 0.6
 	await g.cam_to(x.P0 + x.side * 3.6 - x.d * 2.0 + UP * 0.5, x.P0 + UP * 1.6, 0.6, 52).finished
 	await transform_in(x, form, true)
 	g.show_banner(x.info[0], x.info[1])
-	var top: Vector3 = x.P0 + UP * 2.9
-	g.cam_to(x.P0 + x.side * 2.4 - x.d * 0.6 + UP * 3.6, top + x.d * 0.6, 0.6, 46)
+	var top: Vector3 = x.P0 + UP * TOWER_H
+	g.cam_to(x.P0 + x.side * 2.4 - x.d * 0.6 + UP * 3.7, top + x.d * 0.6, 0.6, 46)
 	for a in archers:
-		Fig.pose(a, {"arm_l": Vector3(PI / 2 + 0.25, 0, 0), "arm_r": Vector3(1.45, 0, 0.35), "fore_r": Vector3(1.9, 0, 0), "torso": Vector3(-0.1, 0, 0)}, 0.5)
-	charge(x, form, 1.1, Vector3(0, 2.8, 0))
+		_nock(a, 0.6)
+	charge(x, form, 1.1, Vector3(0, TOWER_H * 0.93, 0))
 	await g.wait(1.2)
 	g.hide_banner()
 	var waves := 3
 	for w in waves:
-		for a in archers:
-			Fig.pose(a, {"arm_r": Vector3(1.6, 0, 0.05), "fore_r": Vector3(0.1, 0, 0)}, 0.06)
 		g.sfx("arrow", 0, 1.0)
 		g.sfx("arrow", -3, 1.25)
 		for a in archers:
-			var from: Vector3 = Fig.P_(a).hand_l.global_position
 			var to: Vector3 = x.PV + Vector3(randf_range(-0.35, 0.35), randf_range(0.15, 0.9), randf_range(-0.35, 0.35))
-			var ar := Fig.arrow(c, c == -1)
-			if c == -1:
-				g.fx.emitter(ar, Vector3(0, 0, -0.3), [Color("ff8a30"), Color("ffd060")], 16, 0.3, 0.3, -1.0, 0.12, 0.03, 3.0)
-			var tw = g.fx.projectile(ar, from, to, 1.2 + randf() * 0.6, 0.55 + randf() * 0.1, 1.2)
+			var tw = _loose(a, to, c, 1.0, 1.2 + randf() * 0.6, 0.55 + randf() * 0.1)
 			tw.finished.connect(func():
 				g.sfx("thunk", -6, randf_range(0.8, 1.3))
 				if c == -1:
 					g.fx.burst(to, [Color("ff8a30"), Color("ffd060"), Color("ff3010")], 30, 2.5, 0.5, -1.0, 0.2)
 				else:
 					g.fx.burst(to, [Color.WHITE, cols.b], 14, 2.0, 0.3, 4.0, 0.08))
+			await g.wait(0.04)
 		if w == 0:
 			g.cam_to(x.PV + x.side * 2.6 + x.d * 1.0 + UP * 0.7, x.PV + UP * 0.9 - x.d * 0.6, 0.45, 50)
-		await g.wait(0.3)
+		await g.wait(0.2)
 		for a in archers:
-			Fig.pose(a, {"arm_r": Vector3(1.45, 0, 0.35), "fore_r": Vector3(1.9, 0, 0)}, 0.2)
-		await g.wait(0.28)
+			_nock(a, 0.3)
+		await g.wait(0.34)
 		g.shake(0.12)
 		g.create_tween().tween_property(x.vic.get_node("body"), "rotation:x", -0.12 * (w + 1), 0.1)
 	# финальный залп
@@ -749,11 +754,8 @@ func ult_rook(x: Dictionary) -> Vector3:
 	g.set_slow(0.4)
 	var finals := []
 	for a in archers:
-		var from: Vector3 = Fig.P_(a).hand_l.global_position
-		var ar := Fig.arrow(c, true)
-		ar.scale = Vector3.ONE * 1.6
-		g.fx.emitter(ar, Vector3(0, 0, -0.2), [cols.a, Color.WHITE] if c == 1 else [Color("ff3010"), Color("ff8a30")], 30, 0.4, 0.4, 0.0, 0.18, 0.05, 3.0)
-		finals.append(g.fx.projectile(ar, from, x.PV + UP * 0.5, 1.6, 0.6, 0.6))
+		var tw = _loose(a, x.PV + UP * 0.5, c, 1.6, 1.6, 0.6)
+		finals.append(tw)
 	g.sfx("arrow", 0, 0.7)
 	g.lines.mode = 1
 	g.lines.center = g.cam.unproject_position(x.PV + UP * 0.5)

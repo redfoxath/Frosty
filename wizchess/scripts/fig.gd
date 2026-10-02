@@ -173,9 +173,46 @@ static func board_rigged(t: int, c: int, path: String, raw_h: float, height: flo
 	g.rotation.y = g.get_meta("face")
 	return g
 
+## Фигура-модель без скелета (ладья): та же обвязка, что у board_rigged
+static func board_model(t: int, c: int, path: String, height: float) -> Node3D:
+	var g := Node3D.new()
+	var body := node(g, Vector3.ZERO, "body")
+	var holder := Node3D.new()
+	holder.name = "model"
+	body.add_child(holder)
+	var inst: Node3D = (load(path) as PackedScene).instantiate()
+	holder.add_child(inst)
+	holder.scale = Vector3.ONE * height / MODEL_H
+	holder.rotation.y = PI   # дверь башни смотрит вперёд (-Z)
+	var first: BaseMaterial3D = null
+	for mi_ in inst.find_children("*", "MeshInstance3D", true, false):
+		var mesh_i := mi_ as MeshInstance3D
+		for si in mesh_i.mesh.get_surface_count():
+			var m0 := mesh_i.get_active_material(si)
+			if m0 is BaseMaterial3D:
+				var m := (m0 as BaseMaterial3D).duplicate() as BaseMaterial3D
+				mesh_i.set_surface_override_material(si, m)
+				if first == null:
+					first = m
+	_shadows(g)
+	g.set_meta("t", t)
+	g.set_meta("c", c)
+	g.set_meta("m", first)
+	g.set_meta("tr", first)
+	g.set_meta("face", 0.0 if c == 1 else PI)
+	g.set_meta("bob", randf() * 6.0)
+	g.set_meta("h", height)
+	g.rotation.y = g.get_meta("face")
+	return g
+
+## Высота моделей-башен (rook_w/rook_b) в их собственных единицах
+const MODEL_H := 0.98
+
 static func piece(t: int, c: int) -> Node3D:
 	if t == Rules.P:
 		return board_pawn(c)
+	if t == Rules.R:
+		return board_model(Rules.R, c, "res://models/rook_w.glb" if c == 1 else "res://models/rook_b.glb", 1.08)
 	if t == Rules.B:
 		return board_rigged(Rules.B, c, "res://models/bishop_w.glb" if c == 1 else "res://models/bishop_b.glb", 1.8, 1.55)
 	if t == Rules.N:

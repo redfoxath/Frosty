@@ -17,6 +17,11 @@
 - scripts/menu_btn.gd, scripts/menu_deco.gd — золотые кнопки, корона, разделитель
 - models/           — фигуры с mixamo-скелетом: пешки, кони, слоны (bishop_w/b: латник
                       с булавой, стойка «как статуя» запечена в анимацию idle)
+- models/rook_w/b.glb, bow_w/b.glb — ладьи-башни и луки (упрощены до 40 тыс./6 тыс. треугольников,
+                      у лука вырезана тетива — её рисует scripts/archer.gd)
+- scripts/archer.gd — лучник на базе солдата: лук в руке, натяжение тетивы (IK правой руки)
+- scripts/flail.gd  — физика цепи кистеня слона
+- scripts/streak.gd — светящийся след за летящим предметом
 - textures/         — мрамор доски и фигур (marble_white / marble_black)
 - ui/               — фон меню, логотип Frosty Inc (лис и надпись отдельно) и шрифт Forum (лицензия OFL — ui/OFL-Forum.txt)
 - sfx/              — звуки

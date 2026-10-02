@@ -33,11 +33,25 @@ func _init(t: Node3D, c: Color, w := 0.12, l := 0.18) -> void:
 func stop() -> void:
 	_on = false
 
+var _still := 0.0
+var _dt_last := 0.0
+
 func _process(dt: float) -> void:
 	_clock += dt
+	_dt_last = dt
 	global_transform = Transform3D.IDENTITY
 	if _on and target != null and is_instance_valid(target) and target.is_inside_tree():
-		_pts.append([target.global_position, _clock])
+		var p: Vector3 = target.global_position
+		# предмет остановился (воткнулся) — след догорает
+		if _pts.size() > 0 and p.distance_to(_pts[-1][0]) < 0.0005:
+			_still += _dt_last
+			if _still > 0.15:
+				stop()
+		else:
+			_still = 0.0
+		_pts.append([p, _clock])
+	elif _on:
+		stop()
 	while _pts.size() > 0 and _clock - _pts[0][1] > life:
 		_pts.pop_front()
 	_mesh.clear_surfaces()
