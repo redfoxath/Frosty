@@ -29,8 +29,17 @@ func _ready() -> void:
 	_spark_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 	_crack_tex = _make_crack_tex()
 
+## Отложенные функции хранят номер узла, а не сам узел: если узел к тому времени
+## уже удалён, Godot иначе ругается «Lambda capture … was freed».
+static func _alive(id: int) -> Node:
+	return instance_from_id(id) as Node
+
 func _later(n: Node, t: float) -> void:
-	get_tree().create_timer(t).timeout.connect(func(): if is_instance_valid(n): n.queue_free())
+	var id := n.get_instance_id()
+	get_tree().create_timer(t).timeout.connect(func():
+		var o := _alive(id)
+		if o != null:
+			o.queue_free())
 
 func _ramp(colors: Array) -> Gradient:
 	var g := Gradient.new()
@@ -200,7 +209,8 @@ func bolt(from: Vector3, to: Vector3, col: Color, dur := 0.5) -> void:
 	rebuild.call()
 	var steps := int(dur / 0.06)
 	for i in steps:
-		get_tree().create_timer(0.06 * (i + 1)).timeout.connect(func(): if is_instance_valid(root): rebuild.call())
+		var rid := root.get_instance_id()
+		get_tree().create_timer(0.06 * (i + 1)).timeout.connect(func(): if _alive(rid) != null: rebuild.call())
 	var tw := create_tween().set_parallel(true)
 	tw.tween_property(mats[0], "albedo_color:a", 0.0, dur).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.tween_property(mats[1], "albedo_color:a", 0.0, dur).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
@@ -314,11 +324,13 @@ func _chunk(mesh: Mesh, shape: Shape3D, m: Material, pos: Vector3, vel: Vector3,
 	rb.rotation = Vector3(randf() * TAU, randf() * TAU, randf() * TAU)
 	rb.linear_velocity = vel
 	rb.angular_velocity = Vector3(randf_range(-12, 12), randf_range(-12, 12), randf_range(-12, 12))
+	var rbid := rb.get_instance_id()
 	var fade := func():
-		if is_instance_valid(rb):
-			var tw := rb.create_tween()
-			tw.tween_property(rb, "scale", Vector3.ONE * 0.01, 0.8)
-			tw.tween_callback(rb.queue_free)
+		var r := _alive(rbid) as Node3D
+		if r != null:
+			var tw := r.create_tween()
+			tw.tween_property(r, "scale", Vector3.ONE * 0.01, 0.8)
+			tw.tween_callback(r.queue_free)
 	get_tree().create_timer(life).timeout.connect(fade)
 	return rb
 
@@ -387,21 +399,28 @@ func dissolve(piece: Node3D, col: Color, dur := 0.8) -> void:
 	tw.tween_property(piece, "scale", Vector3(0.05, 1.6, 0.05), dur).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.tween_property(piece, "position:y", piece.position.y + 1.2, dur)
 	burst(base + Vector3(0, 0.6, 0), [col, Color.WHITE], 160, 3.0, 1.6, -4.0, 0.15, 180, Vector3.UP, 0.4)
-	get_tree().create_timer(dur).timeout.connect(func(): if is_instance_valid(piece): piece.queue_free())
+	var pid := piece.get_instance_id()
+	get_tree().create_timer(dur).timeout.connect(func():
+		var o := _alive(pid)
+		if o != null:
+			o.queue_free())
 
 ## Полёт стрелы/копья по дуге. Возвращает узел снаряда (остаётся воткнутым).
 func projectile(n: Node3D, from: Vector3, to: Vector3, arc: float, dur: float, stick_ttl := 3.0) -> Tween:
-	add_child(n)
+	if n.get_parent() != self:   # копьё коня уже лежит в fx (его разворачивают перед броском)
+		add_child(n)
 	n.global_position = from
 	var prev := [from]
+	var nid := n.get_instance_id()
 	var step := func(t: float):
-		if not is_instance_valid(n):
+		var node := _alive(nid) as Node3D
+		if node == null:
 			return
 		var p := from.lerp(to, t)
 		p.y += sin(t * PI) * arc
 		var d: Vector3 = p - prev[0]
 		if d.length() > 0.0005:
-			n.global_transform = Transform3D(Basis.looking_at(d.normalized(), Vector3.UP if abs(d.normalized().y) < 0.98 else Vector3.RIGHT), p)
+			node.global_transform = Transform3D(Basis.looking_at(d.normalized(), Vector3.UP if abs(d.normalized().y) < 0.98 else Vector3.RIGHT), p)
 		prev[0] = p
 	var tw := create_tween()
 	tw.tween_method(step, 0.0, 1.0, dur)

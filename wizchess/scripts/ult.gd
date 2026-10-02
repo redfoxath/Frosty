@@ -491,8 +491,9 @@ func ult_bishop(x: Dictionary) -> Vector3:
 	g.cam_to(x.mid + side * (x.dist * 0.6 + 6.0) + UP * 2.2 - d * 0.5, x.mid + UP * 1.6, 0.4, 50)
 	Fig.play_anim(form, "attack", 1.0)
 	var moving := [true]
+	var form_id := form.get_instance_id()
 	var mover := func():
-		while moving[0] and is_instance_valid(form):
+		while moving[0] and instance_from_id(form_id) != null:
 			var fr: float = Fig.anim_pos(form) * 30.0
 			if fr < 0.0:
 				break
