@@ -550,6 +550,8 @@ static func _strip_root_motion(ap: AnimationPlayer, hips: String) -> void:
 
 ## Проиграть анимацию модели (вместо процедурных поз). Возвращает false, если анимации нет.
 static func play_anim(fig: Node3D, name: String, speed := 1.0, from_frame := -1.0) -> bool:
+	if not fig.has_meta("p"):   # процедурная фигура без скелета и анимаций
+		return false
 	var p := P_(fig)
 	if not p.has("anim"):
 		return false
@@ -569,12 +571,16 @@ static func play_anim(fig: Node3D, name: String, speed := 1.0, from_frame := -1.
 
 ## Текущая позиция анимации в секундах (-1, если не играет)
 static func anim_pos(fig: Node3D) -> float:
+	if not fig.has_meta("p"):
+		return -1.0
 	var p := P_(fig)
 	if not p.has("anim") or not p.anim.is_playing():
 		return -1.0
 	return p.anim.current_animation_position
 
 static func stop_anim(fig: Node3D) -> void:
+	if not fig.has_meta("p"):
+		return
 	var p := P_(fig)
 	if p.has("anim"):
 		p.anim.stop()
