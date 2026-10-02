@@ -528,6 +528,14 @@ static func rigged(path: String, feet: float, raw_h: float, height: float, dark 
 		p.anim = ap
 		ap.stop()
 		skel.reset_bone_poses()
+	# кистень: цепь с шаром висит на шарнире и качается по инерции
+	var fl := inst.find_child("mace_flail", true, false) as Node3D
+	if fl != null:
+		var sim := Flail.new()
+		sim.name = "flail"
+		root.add_child(sim)
+		sim.setup(fl)
+		p.flail = sim
 	root.set_meta("p", p)
 	_shadows(root)
 	return root
@@ -613,7 +621,7 @@ static func horseman(c: int, height := 1.55) -> Node3D:
 static func giant(c: int) -> Node3D:
 	var f := rigged("res://models/bishop_w.glb" if c == 1 else "res://models/bishop_b.glb", 0.0, 1.8, 2.15)
 	var p := P_(f)
-	p.weapon = f.find_child("mace*", true, false)
+	p.weapon = f.find_child("mace", true, false)
 	return f
 
 static func ninja(c: int) -> Node3D:

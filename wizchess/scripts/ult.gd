@@ -426,26 +426,70 @@ func _jump_frac(fr: float) -> float:
 			return lerpf(a[1], b[1], (fr - a[0]) / float(b[0] - a[0]))
 	return JUMP_ROOT[-1][1]
 
+## Сдвиг глаз от точки eyes_anchor (в метрах, в осях фигуры: x — вбок, y — вверх, -z — вперёд)
+const EYE_OFS := Vector3(0, 0.10, -0.18)
+
+## Глаза в щели забрала: маленькое горячее ядро + мягкий аддитивный ореол.
+## Узел глаз получает единичный масштаб, поэтому размеры заданы в метрах и не зависят от масштаба скелета.
 func _add_visor_eyes(form: Node3D, col: Color, s: float) -> Node3D:
-	var anchor: Node3D = form.find_child("eyes_anchor", true, false)
+	# точка eyes_anchor в моделях смещена вбок, поэтому считаем от кости головы
 	var eyes := Node3D.new()
-	(anchor if anchor != null else Fig.P_(form).head_att).add_child(eyes)
-	eyes.global_rotation = form.global_rotation
-	var side := form.global_transform.basis.x.normalized()
+	(Fig.P_(form).head_att as Node3D).add_child(eyes)
+	var fb := form.global_transform.basis.orthonormalized()
+	var halos := []
+	eyes.global_transform = Transform3D(fb, eyes.global_position + fb * (EYE_OFS * s))
 	for k in [-1, 1]:
-		var e := MeshInstance3D.new()
-		e.mesh = Fig.sph(0.009 * s, 6)
-		e.material_override = Fig.glow(col, 2.2)
-		eyes.add_child(e)
-		e.global_position = eyes.global_position + side * 0.038 * s * k
+		var core := MeshInstance3D.new()
+		core.mesh = Fig.sph(0.0075 * s, 12)
+		core.material_override = Fig.glow(col.lerp(Color.WHITE, 0.2), 1.7)   # чуть выше порога свечения — лёгкий ореол
+		core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		eyes.add_child(core)
+		core.position = Vector3(0.034 * s * k, 0, 0)
+		var halo := MeshInstance3D.new()
+		var q := QuadMesh.new()
+		q.size = Vector2.ONE * 0.075 * s
+		halo.mesh = q
+		halo.material_override = _eye_halo_mat(col)
+		halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		eyes.add_child(halo)
+		halo.position = core.position + Vector3(0, 0, -0.03 * s)   # перед забралом, чтобы не прятался в шлеме
+		halos.append(halo)
 	var lt := OmniLight3D.new()
 	lt.light_color = col
 	lt.light_energy = 0.0
-	lt.omni_range = 1.2
+	lt.omni_range = 0.4
 	eyes.add_child(lt)
-	lt.global_position = eyes.global_position - form.global_transform.basis.z.normalized() * 0.2
+	lt.position = Vector3(0, 0, -0.25)
 	eyes.set_meta("light", lt)
+	eyes.set_meta("halos", halos)
 	return eyes
+
+var _halo_mats := {}
+
+func _eye_halo_mat(col: Color) -> StandardMaterial3D:
+	var key := col.to_html()
+	if _halo_mats.has(key):
+		return _halo_mats[key]
+	var gt := GradientTexture2D.new()
+	gt.width = 64
+	gt.height = 64
+	gt.fill = GradientTexture2D.FILL_RADIAL
+	gt.fill_from = Vector2(0.5, 0.5)
+	gt.fill_to = Vector2(1.0, 0.5)
+	gt.gradient = Gradient.new()
+	gt.gradient.set_color(0, Color(1, 1, 1, 1))
+	gt.gradient.add_point(0.25, Color(1, 1, 1, 0.45))
+	gt.gradient.set_color(gt.gradient.get_point_count() - 1, Color(1, 1, 1, 0))
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	m.albedo_texture = gt
+	m.albedo_color = Color(col.r, col.g, col.b, 0.9)
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_halo_mats[key] = m
+	return m
 
 # =========================================================
 # СЛОН: громадный рыцарь. Белые — моргенштерн сверху, чёрные — цеп по кругу
@@ -473,21 +517,29 @@ func ult_bishop(x: Dictionary) -> Vector3:
 
 	var headp: Vector3 = P.head_att.global_position + UP * 0.2
 	var fwd := -form.global_transform.basis.z.normalized()
-	await g.cam_to(headp + fwd * 1.6 + side * 0.3, headp, 0.5, 30).finished
+	# камера слева: справа у плеча поднята булава и закрывает забрало
+	await g.cam_to(headp + fwd * 1.6 - side * 0.35, headp, 0.5, 30).finished
 	g.show_banner(x.info[0], x.info[1])
 	g.sfx("clang", 0, 0.5)
 	g.sfx("charge", -4)
 	var lt: OmniLight3D = eyes.get_meta("light")
 	var tw = g.create_tween().set_parallel(true)
-	tw.tween_property(lt, "light_energy", 0.8, 0.5)
-	tw.tween_property(eyes, "scale", Vector3.ONE * 1.4, 0.15).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
-	tw.chain().tween_property(eyes, "scale", Vector3.ONE, 0.4)
-	g.cam_to(headp + fwd * 1.1 + side * 0.2, headp, 1.2, 24)
+	tw.tween_property(lt, "light_energy", 0.1, 0.5)   # слабая подсветка забрала, а не заливка всего шлема
+	# вспышка: раздуваем только ореолы, сами глаза остаются в щели забрала
+	for h in eyes.get_meta("halos"):
+		var th = g.create_tween()
+		th.tween_property(h, "scale", Vector3.ONE * 2.2, 0.15).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+		th.tween_property(h, "scale", Vector3.ONE, 0.5)
+	g.cam_to(headp + fwd * 1.1 - side * 0.25, headp, 1.2, 24)
 	await g.wait(1.3)
 	g.hide_banner()
 
 	var wpn: Node3D = P.weapon
-	var trail = g.fx.emitter(fx_anchor(wpn), Vector3.ZERO, [cols.b] if c == 1 else [Color("ff3010"), Color("ff8a30")], 14, 0.1, 0.25, 0.0, 0.05, 0.05)
+	# шлейф и «линии скорости» — от шара кистеня, а не от рукояти
+	var tip: Node3D = (P.flail as Flail).ball if P.has("flail") else wpn
+	var trail_col: Color = cols.b if c == 1 else Color("ff5a20")
+	if P.has("flail"):
+		(P.flail as Flail).trail(true, trail_col)
 	g.cam_to(x.mid + side * (x.dist * 0.6 + 6.0) + UP * 2.2 - d * 0.5, x.mid + UP * 1.6, 0.4, 50)
 	Fig.play_anim(form, "attack", 1.0)
 	var moving := [true]
@@ -497,7 +549,10 @@ func ult_bishop(x: Dictionary) -> Vector3:
 			var fr: float = Fig.anim_pos(form) * 30.0
 			if fr < 0.0:
 				break
-			form.position = start + d * travel * _jump_frac(fr)
+			# до приземления (кадр 36, доля 1.0) — путь до врага; дальше в анимации идёт ещё +44% хода,
+			# масштабировать его на всю дистанцию нельзя — слон улетал на клетки дальше цели
+			var jf := _jump_frac(fr)
+			form.position = start + d * (travel * minf(jf, 1.0) + maxf(0.0, jf - 1.0) * 0.25)
 			await g.get_tree().process_frame
 	mover.call()
 	await at_frame(form, 18)
@@ -505,14 +560,15 @@ func ult_bishop(x: Dictionary) -> Vector3:
 	await at_frame(form, 24)
 	g.set_slow(0.3)
 	g.lines.mode = 1
-	g.lines.center = g.cam.unproject_position(wpn.global_position)
+	g.lines.center = g.cam.unproject_position(tip.global_position)
 	g.sfx("whoosh", 0, 0.5)
 	await at_frame(form, 29)
 	g.lines.mode = 0
 	g.set_slow(1.0)
 	g.cam_to(x.PV + side * 4.2 + UP * 0.8 - d * 1.6, x.PV + UP * 1.0, 0.15, 52)
 	await at_frame(form, 35)
-	g.fx.stop_emitter(trail)
+	if P.has("flail"):
+		(P.flail as Flail).trail(false)
 	if c == 1:
 		g.fx.cracks(x.PV, cols.b, 5.5)
 		g.fx.pillar(x.PV, cols.b, 0.5, 0.8)
