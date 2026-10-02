@@ -342,22 +342,29 @@ func ult_knight(x: Dictionary) -> Vector3:
 	g.hide_banner()
 	# разбег и бросок: анимация throw с кадра, где конь уже стоит (раньше — наклон к земле)
 	g.cam_to(x.P0 - d * 2.4 + side * 1.3 + UP * 1.7, x.PV + UP * 0.7, 0.4, 50)
-	var sh: float = 0.0 if c == 1 else KNIGHT_BLACK_SHIFT
-	Fig.play_anim(form, "throw", 1.0, KNIGHT_THROW_FROM + sh)
-	await at_frame(form, 80 + sh)
+	# кадры: [начало, отрыв/разгон, замедление с, замедление по, бросок]
+	var T: Array = KNIGHT_W if c == 1 else KNIGHT_B
+	Fig.play_anim(form, "throw", 1.0, T[0])
+	await at_frame(form, T[1])
 	g.sfx("whoosh")
+	var jump = null
+	if c == -1:
+		# чёрный бросает в прыжке: толчок, копьё уходит в верхней точке, приземление
+		g.fx.burst(form.global_position, [Color("6a5f72"), Color("3a3440")], 30, 1.6, 0.6, 3.0, 0.14, 60, UP, 0.3)
+		jump = g.create_tween()
+		jump.tween_method(func(t: float): form.position.y = sin(t * PI) * 0.8, 0.0, 1.0, 20.0 / 30.0)
 	# замах над головой — замедление
-	await at_frame(form, 86 + sh)
+	await at_frame(form, T[2])
 	g.set_slow(0.3)
 	g.lines.mode = 1
 	g.lines.center = g.cam.unproject_position(_spear_geo(wpn, d).c)
 	g.sfx("whoosh", 0, 0.6)
-	await at_frame(form, 89 + sh)
+	await at_frame(form, T[3])
 	g.set_slow(1.0)
 	g.lines.mode = 0
 	# боковой план: видно и бросок, и полёт, и цель
 	g.cam_to(x.mid + side * (x.dist * 0.75 + 2.6) + UP * 1.3 - d * 0.3, x.mid + UP * 0.9, 0.12, 50)
-	await at_frame(form, KNIGHT_RELEASE + sh)
+	await at_frame(form, T[4])
 	# отпускаем копьё: дальше его ведёт полёт, а не рука
 	var tip_to: Vector3 = x.PV + UP * 0.75
 	geo = _spear_geo(wpn, tip_to - form.global_position)
@@ -416,17 +423,20 @@ func ult_knight(x: Dictionary) -> Vector3:
 	drop.chain().tween_interval(0.8)
 	drop.chain().tween_property(pivot, "scale", Vector3.ONE * 0.01, 0.3)
 	drop.chain().tween_callback(pivot.queue_free)
+	if jump != null:
+		await done(jump)
+		form.position.y = 0
 	await g.wait(0.7)
 	Fig.play_anim(form, "idle")
 	await transform_out(x, form, x.P0)
 	return x.P0
 
-## Бросок копья коня (анимация throw), кадры по замеру. У белого и чёрного одно движение,
-## но у чёрного оно на 18 кадров раньше. Начинаем там, где конь уже стоит с копьём (раньше — наклон
-## к земле), отпускаем, когда кисть над плечом уходит вперёд быстрее всего (7–10 м/с).
-const KNIGHT_THROW_FROM := 66.0
-const KNIGHT_RELEASE := 91.0
-const KNIGHT_BLACK_SHIFT := -18.0
+## Бросок копья коня (анимация throw), кадры: [начало, разгон, замедление с, по, бросок].
+## Белый: начинаем, когда конь уже стоит с копьём (раньше — наклон к земле), отпускаем, когда кисть
+## над плечом уходит вперёд быстрее всего (~7 м/с). Чёрный бросает в прыжке, как задумано в его
+## анимации: отрыв на 58-м кадре, копьё уходит в верхней точке.
+const KNIGHT_W := [66.0, 80.0, 86.0, 89.0, 91.0]
+const KNIGHT_B := [46.0, 58.0, 64.0, 68.0, 71.0]
 ## Скорость полёта копья, м/с
 const KNIGHT_SPEAR_SPEED := 16.0
 
