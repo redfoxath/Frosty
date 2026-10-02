@@ -125,6 +125,22 @@ func _ready() -> void:
 		var sp := Splash.new()
 		sp.finished.connect(func(): menu.open_menu(true))
 		add_child(sp)
+	if "--gripshow" in OS.get_cmdline_user_args():
+		panel.visible = false
+		for ch in world.get_children():
+			ch.queue_free()
+		var forms := [Fig.horseman(1), Fig.horseman(-1), Fig.giant(1), Fig.giant(-1)]
+		for i in forms.size():
+			var f: Node3D = forms[i]
+			fx.add_child(f)
+			f.position = Vector3(-2.4 + i * 1.6, 0, 0.5)
+			f.rotation.y = PI - 0.9
+			Fig.play_anim(f, "idle")
+		cam_hoff = 0
+		cam_pos = Vector3(0.0, 1.2, 4.2)
+		cam_look = Vector3(0, 0.9, 0.5)
+		cam_fov = 55
+		return
 	if "--knightshow" in OS.get_cmdline_user_args():
 		panel.visible = false
 		for ch in world.get_children():
@@ -237,26 +253,11 @@ func _build_env() -> void:
 	base_light["rim_node"] = rim
 
 func _build_board() -> void:
-	var nl := FastNoiseLite.new()
-	nl.noise_type = FastNoiseLite.TYPE_CELLULAR
-	nl.frequency = 0.02
-	nl.fractal_type = FastNoiseLite.FRACTAL_FBM
-	var mk := func(c1: Color, c2: Color) -> StandardMaterial3D:
-		var nt := NoiseTexture2D.new()
-		nt.noise = nl
-		nt.width = 256
-		nt.height = 256
-		var gr := Gradient.new()
-		gr.set_color(0, c1)
-		gr.set_color(1, c2)
-		nt.color_ramp = gr
-		var m := StandardMaterial3D.new()
-		m.albedo_texture = nt
-		m.roughness = 0.45
-		m.metallic = 0.05
-		return m
-	var ml: StandardMaterial3D = mk.call(Color("e2d8c4"), Color("b5a891"))
-	var md: StandardMaterial3D = mk.call(Color("2e2638"), Color("5a4a6e"))
+	# мраморная доска: светлые клетки — слоновая кость, тёмные — чёрный мрамор;
+	# текстура в мировых координатах, поэтому прожилки идут через всю доску, как по цельной плите
+	var ml := Fig.marble(true, 0.22, 0.2, true)
+	ml.albedo_color = Color(0.84, 0.82, 0.78)   # чтобы белые клетки не пересвечивались под факелами
+	var md := Fig.marble(false, 0.16, 0.2, true)
 	var sq_mesh := Fig.box(0.98, 0.22, 0.98)
 	for i in 64:
 		var r := i >> 3
@@ -266,7 +267,7 @@ func _build_board() -> void:
 		m.material_override = md if (r + c) % 2 == 1 else ml
 		m.position = sq_pos(i) + Vector3(0, -0.11, 0)
 		add_child(m)
-	var frame := Fig.mi(self, Fig.box(9.3, 0.34, 9.3), Fig.new_mat(Color("151018"), 0.3, 0.55), Vector3(0, -0.2, 0))
+	var frame := Fig.mi(self, Fig.box(9.3, 0.34, 9.3), Fig.marble(false, 0.3, 0.33, true), Vector3(0, -0.2, 0))
 	frame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	Fig.mi(self, Fig.box(8.12, 0.3, 8.12), Fig.new_mat(Color("b88a34"), 0.85, 0.3), Vector3(0, -0.17, 0))
 	for i in 8:
@@ -279,7 +280,10 @@ func _build_board() -> void:
 			l.rotation = Vector3(-PI / 2, 0, 0)
 			l.position = pair[0]
 			add_child(l)
-	Fig.mi(self, Fig.box(80, 0.1, 80), Fig.new_mat(Color("07060a"), 0, 0.95), Vector3(0, -0.42, 0))
+	var floor_m := Fig.marble(false, 0.55, 0.3, true)
+	floor_m.albedo_color = Color(0.24, 0.22, 0.26)
+	floor_m.metallic_specular = 0.35
+	Fig.mi(self, Fig.box(80, 0.1, 80), floor_m, Vector3(0, -0.42, 0))
 	# физика: доска и пол
 	var sb := StaticBody3D.new()
 	var cs := CollisionShape3D.new()

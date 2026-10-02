@@ -24,6 +24,22 @@ static func new_mat(col: Color, metal := 0.0, rough := 0.5, emit := Color.BLACK,
 		m.emission_energy_multiplier = energy
 	return m
 
+## Полированный мрамор (белый — слоновая кость, иначе чёрный) с трипланарной разверткой
+static func marble(white: bool, rough := 0.2, scale := 1.0, world := false) -> StandardMaterial3D:
+	var key := "marble_%s_%.2f_%.2f_%s" % [white, rough, scale, world]
+	if _mats.has(key):
+		return _mats[key]
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = load("res://textures/marble_white.jpg" if white else "res://textures/marble_black.jpg")
+	m.roughness = rough
+	m.metallic_specular = 0.75
+	m.uv1_triplanar = true
+	m.uv1_world_triplanar = world
+	m.uv1_scale = Vector3.ONE * scale
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	_mats[key] = m
+	return m
+
 static func glow(col: Color, energy := 3.0) -> StandardMaterial3D:
 	var key := "glow" + col.to_html() + str(energy)
 	if _mats.has(key):
@@ -143,7 +159,9 @@ static func board_rigged(t: int, c: int, path: String, raw_h: float, height: flo
 				mesh_i.set_surface_override_material(si, m)
 				if first == null:
 					first = m
-	play_anim(form, "idle")
+	# анимация играет только внутри дерева сцены: включаем стойку, когда фигура окажется на доске,
+	# иначе модель остаётся в позе скелета по умолчанию (у слона это Т-поза)
+	form.ready.connect(func(): play_anim(form, "idle"), CONNECT_ONE_SHOT)
 	g.set_meta("t", t)
 	g.set_meta("c", c)
 	g.set_meta("m", first)
@@ -158,6 +176,8 @@ static func board_rigged(t: int, c: int, path: String, raw_h: float, height: flo
 static func piece(t: int, c: int) -> Node3D:
 	if t == Rules.P:
 		return board_pawn(c)
+	if t == Rules.B:
+		return board_rigged(Rules.B, c, "res://models/bishop_w.glb" if c == 1 else "res://models/bishop_b.glb", 1.8, 1.55)
 	if t == Rules.N:
 		return board_rigged(Rules.N, c, "res://models/knight_w.glb" if c == 1 else "res://models/knight_b.glb", 1.81, 1.35)
 	var g := Node3D.new()
@@ -165,10 +185,12 @@ static func piece(t: int, c: int) -> Node3D:
 	var m: StandardMaterial3D
 	var tr: StandardMaterial3D
 	if c == 1:
-		m = new_mat(Color("ece3d0"), 0.05, 0.3)
+		m = marble(true, 0.24, 1.6)
 		tr = new_mat(Color("d8a63c"), 0.85, 0.28)
 	else:
-		m = new_mat(Color("1d1625"), 0.6, 0.18, Color("1a0309"), 1.0)
+		m = marble(false, 0.16, 1.6).duplicate()
+		m.emission_enabled = true
+		m.emission = Color("1a0309")
 		tr = new_mat(Color("9c1830"), 0.6, 0.25, Color("3a0010"), 1.0)
 	var eye := glow(side_cols(c).eye, 4.0)
 	var ey := 0.7
@@ -517,7 +539,7 @@ static func _strip_root_motion(ap: AnimationPlayer, hips: String) -> void:
 		for an in lib.get_animation_list():
 			var a: Animation = lib.get_animation(an)
 			a.loop_mode = Animation.LOOP_LINEAR if (an == "walk" or an == "idle" or an.ends_with("walk")) else Animation.LOOP_NONE
-			if not (an == "walk" or an.ends_with("walk")):
+			if not (an == "walk" or an.ends_with("walk") or an == "attack"):
 				continue
 			for ti in a.get_track_count():
 				if a.track_get_type(ti) == Animation.TYPE_POSITION_3D and String(a.track_get_path(ti)).ends_with(hips):
@@ -583,36 +605,9 @@ static func horseman(c: int, height := 1.55) -> Node3D:
 	return f
 
 static func giant(c: int) -> Node3D:
-	var armor := mat("plate_w", Color("d4d8e0"), 0.95, 0.22) if c == 1 else mat("plate_b", Color("1e1a24"), 0.9, 0.3)
-	var f := humanoid({"armor": armor, "cloth": mat("dark", Color("100c12"), 0, 0.9), "head": "none", "w": 1.25, "glove": armor, "boot": armor})
+	var f := rigged("res://models/bishop_w.glb" if c == 1 else "res://models/bishop_b.glb", 0.0, 1.8, 2.15)
 	var p := P_(f)
-	var head: Node3D = p.head
-	var eyec: Color = Color("4aa8ff") if c == 1 else Color("ff2030")
-	mi(head, cyl(0.17, 0.18, 0.36), armor, Vector3(0, 0.15, 0))
-	mi(head, sph(0.17), armor, Vector3(0, 0.33, 0), Vector3.ZERO, Vector3(1, 0.5, 1))
-	mi(head, box(0.26, 0.035, 0.05), mat("dark", Color("100c12"), 0, 0.9), Vector3(0, 0.18, -0.16))
-	mi(head, box(0.035, 0.2, 0.05), mat("dark", Color("100c12"), 0, 0.9), Vector3(0, 0.08, -0.17))
-	var eyes := node(head, Vector3.ZERO, "eyes")
-	for s in [-1, 1]:
-		mi(eyes, sph(0.025, 8), glow(eyec, 3.0), Vector3(s * 0.065, 0.18, -0.15))
-	var lt := OmniLight3D.new()
-	lt.light_color = eyec
-	lt.light_energy = 0.0
-	lt.omni_range = 1.5
-	lt.position = Vector3(0, 0.18, -0.35)
-	head.add_child(lt)
-	p.eye_light = lt
-	p.eyes = eyes
-	# плащ
-	var cape_m := mat("cape_w", Color("1a3a8a"), 0, 0.8) if c == 1 else mat("cape_b", Color("4a0010"), 0, 0.8)
-	mi(p.torso, box(0.5, 1.2, 0.04), cape_m, Vector3(0, 0.0, 0.17), Vector3(0.12, 0, 0))
-	for s in [-1, 1]:
-		mi(p.torso, sph(0.16), armor, Vector3(s * 0.36, 0.56, 0), Vector3.ZERO, Vector3(1.2, 0.8, 1.1))
-	var ms := morningstar(c, c != 1)
-	p.hand_r.add_child(ms)
-	ms.rotation = Vector3(PI / 2, 0, 0)
-	p.weapon = ms
-	f.scale = Vector3.ONE * 1.45
+	p.weapon = f.find_child("mace*", true, false)
 	return f
 
 static func ninja(c: int) -> Node3D:

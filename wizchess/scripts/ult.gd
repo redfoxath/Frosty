@@ -12,7 +12,7 @@ const INFO := {
 	"1b": ["СЕКИРА ТЬМЫ", "ПЕШКА · ЧЁРНЫЙ ЛЕГИОН", "ХРЯСЬ!"],
 	"2w": ["КОПЬЁ ГРОМА", "КОНЬ · НЕБЕСНЫЙ БРОСОК", "ГРОМ!"],
 	"2b": ["АДСКОЕ КОПЬЁ", "КОНЬ · ОГНЕННЫЙ БРОСОК", "БАБАХ!"],
-	"3w": ["МОРГЕНШТЕРН СУДА", "СЛОН · ЖЕЛЕЗНЫЙ ПАЛАДИН", "БУМ!"],
+	"3w": ["ЦЕП ПРАВОСУДИЯ", "СЛОН · ЖЕЛЕЗНЫЙ ПАЛАДИН", "БУМ!"],
 	"3b": ["ЦЕП БЕЗДНЫ", "СЛОН · ЧЁРНЫЙ ПАЛАДИН", "ХРУСТЬ!"],
 	"4w": ["ЛИВЕНЬ СТРЕЛ", "ЛАДЬЯ · ГАРНИЗОН КРЕПОСТИ", "ТРА-ТА-ТА!"],
 	"4b": ["ОГНЕННЫЙ ЗАЛП", "ЛАДЬЯ · ЧЁРНАЯ ЦИТАДЕЛЬ", "ПЫЛАЙ!"],
@@ -98,6 +98,7 @@ func transform_in(x: Dictionary, form: Node3D, rise := false) -> void:
 	b.rotation.y = 0
 	b.position.y = 0
 	g.fx.add_child(form)
+	Fig.play_anim(form, "idle")
 	form.position = x.P0
 	form.rotation.y = x.ang
 	var s := form.scale
@@ -415,95 +416,119 @@ func ult_knight(x: Dictionary) -> Vector3:
 	await transform_out(x, form, x.P0)
 	return x.P0
 
+const JUMP_ROOT := [[1, 0.0], [4, 0.13], [7, 0.24], [10, 0.36], [13, 0.48], [16, 0.59], [19, 0.64], [22, 0.68], [25, 0.75], [28, 0.81], [31, 0.87], [34, 0.93], [36, 1.0], [40, 1.13], [46, 1.24], [52, 1.33], [58, 1.4], [66, 1.44]]
+
+func _jump_frac(fr: float) -> float:
+	for i in range(1, JUMP_ROOT.size()):
+		if fr <= JUMP_ROOT[i][0]:
+			var a: Array = JUMP_ROOT[i - 1]
+			var b: Array = JUMP_ROOT[i]
+			return lerpf(a[1], b[1], (fr - a[0]) / float(b[0] - a[0]))
+	return JUMP_ROOT[-1][1]
+
+func _add_visor_eyes(form: Node3D, col: Color, s: float) -> Node3D:
+	var anchor: Node3D = form.find_child("eyes_anchor", true, false)
+	var eyes := Node3D.new()
+	(anchor if anchor != null else Fig.P_(form).head_att).add_child(eyes)
+	eyes.global_rotation = form.global_rotation
+	var side := form.global_transform.basis.x.normalized()
+	for k in [-1, 1]:
+		var e := MeshInstance3D.new()
+		e.mesh = Fig.sph(0.009 * s, 6)
+		e.material_override = Fig.glow(col, 2.2)
+		eyes.add_child(e)
+		e.global_position = eyes.global_position + side * 0.038 * s * k
+	var lt := OmniLight3D.new()
+	lt.light_color = col
+	lt.light_energy = 0.0
+	lt.omni_range = 1.2
+	eyes.add_child(lt)
+	lt.global_position = eyes.global_position - form.global_transform.basis.z.normalized() * 0.2
+	eyes.set_meta("light", lt)
+	return eyes
+
 # =========================================================
 # СЛОН: громадный рыцарь. Белые — моргенштерн сверху, чёрные — цеп по кругу
 # =========================================================
 func ult_bishop(x: Dictionary) -> Vector3:
 	var c: int = x.c
 	var cols: Dictionary = x.cols
+	var d: Vector3 = x.d
+	var side: Vector3 = x.side
 	var form := Fig.giant(c)
 	var P := Fig.P_(form)
-	await shot_start(x, 1.6, 1.6, 3.8, 46)
+	var s: float = form.get_node("model").scale.x * 1.8 / 1.8
+	var eyec: Color = Color("4aa8ff") if c == 1 else Color("ff2030")
+
+	var reach := 0.75
+	var travel: float = max(0.0, x.dist - reach)
+	var start: Vector3 = x.P0
+	await shot_start(x, 1.8, 1.6, 4.0, 46)
 	await transform_in(x, form)
+	Fig.play_anim(form, "idle")
 	g.shake(0.25)
 	g.sfx("boom", -6, 0.6)
-	# крупный план шлема
-	var head: Vector3 = P.head.global_position + UP * 0.25
-	var fwd := Vector3(-sin(x.ang), 0, -cos(x.ang))
-	await g.cam_to(head + fwd * 2.2 + x.side * 0.35 + UP * 0.05, head, 0.5, 30).finished
+	await g.wait(0.1)
+	var eyes := _add_visor_eyes(form, eyec, 2.15 / 1.8)
+
+	var headp: Vector3 = P.head_att.global_position + UP * 0.2
+	var fwd := -form.global_transform.basis.z.normalized()
+	await g.cam_to(headp + fwd * 1.6 + side * 0.3, headp, 0.5, 30).finished
 	g.show_banner(x.info[0], x.info[1])
 	g.sfx("clang", 0, 0.5)
 	g.sfx("charge", -4)
-	var eyes: Node3D = P.eyes
-	var lt: OmniLight3D = P.eye_light
+	var lt: OmniLight3D = eyes.get_meta("light")
 	var tw = g.create_tween().set_parallel(true)
-	tw.tween_property(lt, "light_energy", 1.2, 0.6)
-	tw.tween_property(eyes, "scale", Vector3.ONE * 1.5, 0.15).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
-	tw.chain().tween_property(eyes, "scale", Vector3.ONE * 1.3, 0.4)
-	g.fx.burst(head + fwd * 0.2, [Color("4aa8ff") if c == 1 else Color("ff2030"), Color.WHITE], 40, 1.0, 0.8, -1.0, 0.08, 180, UP, 0.15)
-	g.cam_to(head + fwd * 1.6 + x.side * 0.2, head, 1.2, 24)
+	tw.tween_property(lt, "light_energy", 0.8, 0.5)
+	tw.tween_property(eyes, "scale", Vector3.ONE * 1.4, 0.15).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+	tw.chain().tween_property(eyes, "scale", Vector3.ONE, 0.4)
+	g.cam_to(headp + fwd * 1.1 + side * 0.2, headp, 1.2, 24)
 	await g.wait(1.3)
 	g.hide_banner()
-	# тяжёлые шаги
-	var strike: Vector3 = x.PV - x.d * 1.75
-	if strike.distance_to(x.P0) > x.dist:
-		strike = x.P0
-	g.cam_to(x.mid + x.side * (x.dist * 0.7 + 5.0) + UP * 1.6 - x.d * 0.6, x.mid + UP * 1.4, 0.45, 48)
-	var steps: int = max(1, int(x.P0.distance_to(strike) / 0.8))
-	var cur: Vector3 = x.P0
-	for i in steps:
-		var nxt: Vector3 = x.P0.lerp(strike, float(i + 1) / steps)
-		await run_to(form, cur, nxt, 0.35, 0.5)
-		cur = nxt
-		g.shake(0.25)
-		g.sfx("boom", -10, 0.5)
-		g.fx.burst(cur, [Color("9a8d7d"), Color("6a5f72")], 25, 2.0, 0.6, 3.0, 0.25, 70, UP, 0.4)
-	var ball: Node3D = P.weapon.get_meta("ball")
+
+	var wpn: Node3D = P.weapon
+	var trail = g.fx.emitter(fx_anchor(wpn), Vector3.ZERO, [cols.b] if c == 1 else [Color("ff3010"), Color("ff8a30")], 14, 0.1, 0.25, 0.0, 0.05, 0.05)
+	g.cam_to(x.mid + side * (x.dist * 0.6 + 6.0) + UP * 2.2 - d * 0.5, x.mid + UP * 1.6, 0.4, 50)
+	Fig.play_anim(form, "attack", 1.0)
+	var moving := [true]
+	var mover := func():
+		while moving[0] and is_instance_valid(form):
+			var fr: float = Fig.anim_pos(form) * 30.0
+			if fr < 0.0:
+				break
+			form.position = start + d * travel * _jump_frac(fr)
+			await g.get_tree().process_frame
+	mover.call()
+	await at_frame(form, 18)
+	g.sfx("whoosh", 0, 0.7)
+	await at_frame(form, 24)
+	g.set_slow(0.3)
+	g.lines.mode = 1
+	g.lines.center = g.cam.unproject_position(wpn.global_position)
+	g.sfx("whoosh", 0, 0.5)
+	await at_frame(form, 29)
+	g.lines.mode = 0
+	g.set_slow(1.0)
+	g.cam_to(x.PV + side * 4.2 + UP * 0.8 - d * 1.6, x.PV + UP * 1.0, 0.15, 52)
+	await at_frame(form, 35)
+	g.fx.stop_emitter(trail)
 	if c == 1:
-		await Fig.pose(form, {"arm_r": Vector3(PI, 0, 0), "fore_r": Vector3(0, 0, 0), "arm_l": Vector3(0.5, 0, -0.3)}, 0.3).finished
-		var trail = g.fx.emitter(ball, Vector3.ZERO, [cols.b], 30, 0.2, 0.3, 0.0, 0.12, 0.15)
-		g.lines.mode = 1
-		var tw2 = g.create_tween()
-		tw2.tween_method(func(t: float):
-			P.arm_r.rotation = Vector3(PI, t * TAU * 3.0, 0)
-			g.lines.center = g.cam.unproject_position(ball.global_position)
-			, 0.0, 1.0, 1.0)
-		for i in 3:
-			g.get_tree().create_timer(0.33 * i).timeout.connect(func(): g.sfx("whoosh", 0, 0.7))
-		await tw2.finished
-		g.lines.mode = 0
-		g.cam_to(x.PV + x.side * 4.2 + UP * 0.6 - x.d * 1.2, x.PV + UP * 1.4, 0.2, 52)
-		g.set_slow(0.3)
-		await Fig.pose(form, {"arm_r": Vector3(PI * 1.15, 0, 0), "torso": Vector3(-0.3, 0, 0)}, 0.2).finished
-		g.set_slow(1.0)
-		await Fig.pose(form, {"arm_r": Vector3(0.35, 0, 0), "torso": Vector3(0.5, 0, 0)}, 0.12, Tween.TRANS_EXPO, Tween.EASE_IN).finished
-		g.fx.stop_emitter(trail)
 		g.fx.cracks(x.PV, cols.b, 5.5)
-		g.sfx("crack")
-		g.fx.burst(x.PV, [Color("9a8d7d"), Color("d9cfba"), cols.b], 160, 5.0, 1.6, 8.0, 0.3, 70, UP, 0.8)
-		await impact(x, 1.7, true, "shatter", ball.global_position + UP * 0.2)
+		g.fx.pillar(x.PV, cols.b, 0.5, 0.8)
 	else:
-		await Fig.pose(form, {"arm_r": Vector3(PI / 2, 0, 0.3), "fore_r": Vector3(0, 0, 0)}, 0.25).finished
-		var fire = g.fx.emitter(ball, Vector3.ZERO, [Color("ff3010"), Color("ff8a30"), Color("ffd060")], 80, 0.3, 0.45, -1.0, 0.28, 0.2)
-		g.sfx("fire", -4)
-		g.cam_to(strike + x.side * 5.0 + UP * 2.6, strike + UP * 1.2, 0.4, 52)
-		var a0: float = x.ang
-		var tw3 = g.create_tween()
-		tw3.tween_method(func(t: float): form.rotation.y = a0 + t * TAU * 3.0, 0.0, 1.0, 1.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-		for i in 4:
-			g.get_tree().create_timer(0.3 * i).timeout.connect(func(): g.sfx("whoosh", 0, 0.6 + 0.1 * i))
-		await tw3.finished
-		form.rotation.y = a0
-		g.fx.slash(x.PV + UP * 0.7, Vector3(0, x.ang + PI / 2, 0.15), Color("ff5a20"), 5.0, 0.5, 0.2)
-		g.fx.stop_emitter(fire)
-		g.fx.burst(x.PV + UP * 0.6, [Color("ff3010"), Color("ff8a30"), Color("ffd060")], 240, 7.0, 1.0, 2.0, 0.3, 70, x.side * -1.0, 0.4)
-		await impact(x, 2.2, true, "side", ball.global_position)
-	await g.wait(0.6)
-	Fig.pose(form, {"arm_r": Vector3.ZERO, "arm_l": Vector3.ZERO, "torso": Vector3.ZERO}, 0.3)
-	var tw4 = g.create_tween()
-	tw4.tween_property(lt, "light_energy", 0.0, 0.3)
-	await transform_out(x, form, strike)
-	return strike
+		g.fx.burst(x.PV + UP * 0.4, [Color("ff3010"), Color("ff8a30"), Color("ffd060")], 160, 6.0, 1.0, 2.0, 0.22, 70, UP, 0.4)
+		g.fx.cracks(x.PV, Color("ff4010"), 5.0)
+		g.sfx("crack")
+	g.fx.burst(x.PV, [Color("9a8d7d"), Color("d9cfba")], 100, 5.0, 1.4, 8.0, 0.25, 70, UP, 0.8)
+	await impact(x, 1.8, true)
+	await at_frame(form, 52)
+	moving[0] = false
+	var endp := form.position
+	Fig.play_anim(form, "idle")
+	g.create_tween().tween_property(lt, "light_energy", 0.0, 0.3)
+	await g.wait(0.3)
+	await transform_out(x, form, x.P0)
+	return x.P0
 
 # =========================================================
 # ЛАДЬЯ: башня с лучниками. Белые — ливень стрел, чёрные — огненные стрелы

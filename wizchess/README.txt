@@ -15,6 +15,9 @@
 - scripts/splash.gd — заставка Frosty Inc перед меню (клик/клавиша — пропустить)
 - scripts/menu.gd   — главное меню (Играть / Продолжить / Настройки / Выход)
 - scripts/menu_btn.gd, scripts/menu_deco.gd — золотые кнопки, корона, разделитель
+- models/           — фигуры с mixamo-скелетом: пешки, кони, слоны (bishop_w/b: латник
+                      с булавой, стойка «как статуя» запечена в анимацию idle)
+- textures/         — мрамор доски и фигур (marble_white / marble_black)
 - ui/               — фон меню, логотип Frosty Inc (лис и надпись отдельно) и шрифт Forum (лицензия OFL — ui/OFL-Forum.txt)
 - sfx/              — звуки
 
