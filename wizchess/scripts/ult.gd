@@ -324,80 +324,78 @@ func ult_knight(x: Dictionary) -> Vector3:
 	await shot_start(x, 1.2, 1.2, 2.8, 40)
 	await transform_in(x, form)
 	Fig.play_anim(form, "idle")
-	var wpn: Node3D = P.weapon
+	var wpn: MeshInstance3D = P.weapon
 	var fire_cols := [Color("ff8a30"), Color("ffd060"), Color("ff3010")]
 	g.sfx("roar", -8, 1.8)
 	g.show_banner(x.info[0], x.info[1])
 	g.cam_to(x.P0 + side * 2.0 + d * 0.8 + UP * 1.3, x.P0 + UP * 1.3, 1.3, 32)
 	charge(x, form, 1.2)
+	var geo := _spear_geo(wpn, UP)
+	var top: Vector3 = geo.c + geo.dir * geo.half   # верхний конец копья
 	if c == 1:
-		g.fx.bolt(wpn.global_position + UP * 6.0, wpn.global_position, cols.b, 0.4)
+		g.fx.bolt(top + UP * 6.0, top, cols.b, 0.4)
 		g.sfx("zap", -6)
 	else:
-		g.fx.glow_ball(wpn.global_position, Color("ff6a20"), 1.2, 0.5)
+		g.fx.glow_ball(top, Color("ff6a20"), 1.2, 0.5)
 		g.sfx("fire", -6)
 	await g.wait(1.35)
 	g.hide_banner()
-	# бросок: камера из-за плеча на цель
+	# разбег и бросок: анимация throw с кадра, где конь уже стоит (раньше — наклон к земле)
 	g.cam_to(x.P0 - d * 2.4 + side * 1.3 + UP * 1.7, x.PV + UP * 0.7, 0.4, 50)
-	Fig.play_anim(form, "throw", 1.0, 46)
-	var p0: Vector3 = x.P0
-	await at_frame(form, 58)
+	var sh: float = 0.0 if c == 1 else KNIGHT_BLACK_SHIFT
+	Fig.play_anim(form, "throw", 1.0, KNIGHT_THROW_FROM + sh)
+	await at_frame(form, 80 + sh)
 	g.sfx("whoosh")
-	g.fx.burst(x.P0, [Color("9a8d7d"), Color.WHITE], 40, 3.0, 0.7, 3.0, 0.2, 60, UP, 0.3)
-	var jump = g.create_tween()
-	jump.tween_method(func(t: float): form.position.y = sin(t * PI) * 0.8, 0.0, 1.0, 20.0 / 30.0)
-	await at_frame(form, 64)
+	# замах над головой — замедление
+	await at_frame(form, 86 + sh)
 	g.set_slow(0.3)
 	g.lines.mode = 1
-	g.lines.center = g.cam.unproject_position(form.global_position + UP * 1.6)
+	g.lines.center = g.cam.unproject_position(_spear_geo(wpn, d).c)
 	g.sfx("whoosh", 0, 0.6)
-	await at_frame(form, 68)
+	await at_frame(form, 89 + sh)
 	g.set_slow(1.0)
 	g.lines.mode = 0
 	# боковой план: видно и бросок, и полёт, и цель
 	g.cam_to(x.mid + side * (x.dist * 0.75 + 2.6) + UP * 1.3 - d * 0.3, x.mid + UP * 0.9, 0.12, 50)
-	await at_frame(form, 71)
-	# отпускаем копьё
-	var to: Vector3 = x.PV + UP * 0.55
-	var from: Vector3 = wpn.global_position
-	var mi_list := wpn.find_children("*", "MeshInstance3D", true, false)
-	if wpn is MeshInstance3D:
-		mi_list.append(wpn)
+	await at_frame(form, KNIGHT_RELEASE + sh)
+	# отпускаем копьё: дальше его ведёт полёт, а не рука
+	var tip_to: Vector3 = x.PV + UP * 0.75
+	geo = _spear_geo(wpn, tip_to - form.global_position)
 	var pivot := Node3D.new()
 	g.fx.add_child(pivot)
-	pivot.global_transform = Transform3D(Basis.looking_at((to - from).normalized(), UP), from)
+	pivot.global_transform = Transform3D(Basis.looking_at(geo.dir, UP), geo.c)
 	var gt := wpn.global_transform
 	wpn.get_parent().remove_child(wpn)
 	pivot.add_child(wpn)
 	wpn.global_transform = gt
-	# развернуть копьё остриём по полёту (длинная ось сетки → -Z пивота)
-	if mi_list.size() > 0:
-		var mi0: MeshInstance3D = mi_list[0]
-		var ab := mi0.get_aabb()
-		var ax := Vector3.RIGHT
-		if ab.size.y >= ab.size.x and ab.size.y >= ab.size.z:
-			ax = Vector3.UP
-		elif ab.size.z >= ab.size.x:
-			ax = Vector3.BACK
-		var wdir := (mi0.global_transform.basis * ax).normalized()
-		if wdir.dot(to - from) < 0:
-			wdir = -wdir
-		var q := Quaternion(wdir, (to - from).normalized())
-		var center := mi0.global_transform * ab.get_center()
-		var tr := Transform3D(Basis(q), Vector3.ZERO)
-		var off := Transform3D(Basis.IDENTITY, center) * tr * Transform3D(Basis.IDENTITY, -center)
-		wpn.global_transform = off * wpn.global_transform
 	g.sfx("whoosh", 0, 0.5)
-	if c == 1:
-		g.fx.bolt(from, to, cols.b, 0.4)
-	else:
-		g.fx.bolt(from, to, Color("ff5a10"), 0.4)
-		g.fx.burst(from, fire_cols, 40, 2.0, 0.4, -1.0, 0.1)
 	g.unfollow()
+	# острие входит в грудь врага на треть длины копья
+	var start: Vector3 = geo.c
+	var flat := tip_to - start
+	var end: Vector3 = tip_to - flat.normalized() * geo.half * 0.65
+	var dist := start.distance_to(end)
+	var arc := 0.08 * dist
+	var trail: Node3D = Node3D.new()
+	pivot.add_child(trail)
+	trail.position = Vector3(0, 0, -geo.half)   # на острие
+	var streak := Streak.new(trail, cols.b if c == 1 else Color("ff6a20"), 0.1, 0.16)
+	g.fx.add_child(streak)
+	var q0 := Quaternion(Basis.looking_at(geo.dir, UP))
+	var pv_id := pivot.get_instance_id()
 	g.set_slow(0.45)
-	var fly = g.fx.projectile(pivot, from, to + (to - from).normalized() * 0.35, 0.15, 0.3, 1.6)
-	await done(fly)
+	var fly = g.create_tween()
+	fly.tween_method(func(t: float):
+		var pv := instance_from_id(pv_id) as Node3D
+		if pv == null:
+			return
+		var pos := start.lerp(end, t) + UP * arc * 4.0 * t * (1.0 - t)
+		var tan := (end - start) + UP * arc * 4.0 * (1.0 - 2.0 * t)
+		# из положения в руке копьё за первую треть полёта доворачивается остриём по траектории
+		var q1 := Quaternion(Basis.looking_at(tan.normalized(), UP))
+		pv.global_transform = Transform3D(Basis(q0.slerp(q1, clampf(t * 3.0, 0.0, 1.0))), pos)
+		, 0.0, 1.0, maxf(0.12, dist / KNIGHT_SPEAR_SPEED))
+	await fly.finished
 	g.set_slow(1.0)
 	if c == 1:
 		for i in 3:
@@ -408,13 +406,49 @@ func ult_knight(x: Dictionary) -> Vector3:
 		g.sfx("fire")
 		g.fx.burst(x.PV + UP * 0.3, fire_cols, 140, 5.0, 1.1, -3.0, 0.25, 50, UP, 0.5)
 		g.fx.pillar(x.PV, Color("ff3010"), 0.4, 0.8)
-	await impact(x, 1.3, false)
-	await done(jump)
-	form.position.y = 0
+	streak.stop()
+	trail.queue_free()
+	await impact(x, 1.3, false, "shatter", tip_to)
+	# цели нет — копьё падает на доску и исчезает
+	var drop = g.create_tween().set_parallel(true)
+	drop.tween_property(pivot, "global_position:y", 0.12, 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	drop.tween_property(pivot, "rotation:x", pivot.rotation.x + 0.9, 0.45)
+	drop.chain().tween_interval(0.8)
+	drop.chain().tween_property(pivot, "scale", Vector3.ONE * 0.01, 0.3)
+	drop.chain().tween_callback(pivot.queue_free)
 	await g.wait(0.7)
 	Fig.play_anim(form, "idle")
 	await transform_out(x, form, x.P0)
 	return x.P0
+
+## Бросок копья коня (анимация throw), кадры по замеру. У белого и чёрного одно движение,
+## но у чёрного оно на 18 кадров раньше. Начинаем там, где конь уже стоит с копьём (раньше — наклон
+## к земле), отпускаем, когда кисть над плечом уходит вперёд быстрее всего (7–10 м/с).
+const KNIGHT_THROW_FROM := 66.0
+const KNIGHT_RELEASE := 91.0
+const KNIGHT_BLACK_SHIFT := -18.0
+## Скорость полёта копья, м/с
+const KNIGHT_SPEAR_SPEED := 16.0
+
+## Копьё в мировых координатах по его сетке: центр, направление (в сторону toward) и полудлина.
+## Начало координат узла копья в модели далеко от самого копья, поэтому по узлу считать нельзя.
+func _spear_geo(mi: MeshInstance3D, toward: Vector3) -> Dictionary:
+	var ab := mi.get_aabb()
+	var ax := Vector3.RIGHT
+	var half := ab.size.x * 0.5
+	if ab.size.y >= ab.size.x and ab.size.y >= ab.size.z:
+		ax = Vector3.UP
+		half = ab.size.y * 0.5
+	elif ab.size.z >= ab.size.x:
+		ax = Vector3.BACK
+		half = ab.size.z * 0.5
+	var gt := mi.global_transform
+	var dir := gt.basis * ax
+	var hl := dir.length() * half
+	dir = dir.normalized()
+	if dir.dot(toward) < 0.0:
+		dir = -dir
+	return {"c": gt * ab.get_center(), "dir": dir, "half": hl}
 
 ## Кадр удара в анимации attack: шар идёт диагонально сверху-справа вниз-влево
 ## и в этот кадр он перед слоном на высоте корпуса противника (~0.7 м)
